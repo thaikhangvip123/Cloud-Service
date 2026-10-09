@@ -18,8 +18,8 @@ jobs:
   python-quality:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -38,8 +38,8 @@ jobs:
   build-and-validate:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -47,7 +47,7 @@ jobs:
       - name: Build Lambda packages
         working-directory: infrastructure
         run: bash ./build_lambda_packages.sh
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
       - name: Check Terraform formatting
@@ -58,7 +58,7 @@ jobs:
       - name: Validate Terraform
         working-directory: infrastructure/terraform
         run: terraform validate
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: lambda-packages
           path: infrastructure/packages/*.zip

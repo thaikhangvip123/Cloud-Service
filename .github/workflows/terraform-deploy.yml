@@ -48,22 +48,22 @@ jobs:
     runs-on: ubuntu-24.04
     environment: ${{ format('{0}-plan', inputs.environment) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: infrastructure/requirements.txt
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: pa-${{ inputs.environment }}-terraform-plan
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
       - name: Download tested Lambda packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: lambda-packages
           path: infrastructure/packages
@@ -120,7 +120,7 @@ jobs:
         if: always()
         working-directory: infrastructure/terraform
         run: rm -f ci.tfvars.json tfplan tfplan.json tfplan.log
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: terraform-${{ inputs.environment }}-${{ github.run_id }}
           path: |
@@ -135,21 +135,21 @@ jobs:
     runs-on: ubuntu-24.04
     environment: ${{ format('{0}-apply', inputs.environment) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: infrastructure/requirements.txt
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: pa-${{ inputs.environment }}-terraform-apply
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: terraform-${{ inputs.environment }}-${{ github.run_id }}
           path: infrastructure
