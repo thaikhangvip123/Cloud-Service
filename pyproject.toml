@@ -1,0 +1,21 @@
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.pytest.ini_options]
+pythonpath = ["infrastructure"]
+testpaths = ["infrastructure/tests"]
+addopts = "-q"
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+
+[tool.pylint.main]
+py-version = "3.12"
+jobs = 0
+# Preserve the current baseline while CI makes regressions visible.
+fail-under = 8.0
+
+[tool.pylint.format]
+max-line-length = 100

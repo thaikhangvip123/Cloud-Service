@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  workflow_call:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  TERRAFORM_VERSION: "1.9.8"
+  PYTHONPATH: infrastructure
+
+jobs:
+  python-quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+      - run: black --check infrastructure
+      - run: flake8 infrastructure
+      - run: pylint infrastructure/lambda_functions infrastructure/shared infrastructure/scripts
+      - run: mypy infrastructure/lambda_functions infrastructure/shared infrastructure/scripts
+      - run: >-
+          pytest
+          --cov=infrastructure/shared
+          --cov=infrastructure/lambda_functions
+          --cov-report=term-missing
+
+  build-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: infrastructure/requirements.txt
+      - name: Build Lambda packages
+        working-directory: infrastructure
+        run: bash ./build_lambda_packages.sh
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive infrastructure/terraform
+      - name: Initialize Terraform without remote backend
+        working-directory: infrastructure/terraform
+        run: terraform init -backend=false -input=false
+      - name: Validate Terraform
+        working-directory: infrastructure/terraform
+        run: terraform validate
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lambda-packages
+          path: infrastructure/packages/*.zip
+          if-no-files-found: error
+          retention-days: 5

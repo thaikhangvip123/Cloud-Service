@@ -1,0 +1,33 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+ci.tfvars.json
+infrastructure/build/
+infrastructure/packages/
+# Internal project documentation
+docs/
+Document.pdf
+Implementation.md
+
+# Local tooling and credentials
+.aws/
+.codex/
+.agents/
+*.tfvars.json
+*.tfplan
+tfplan.*
+*.log
+*.tfvars
+.env.*
+*.zip
+*.pem
+*.key

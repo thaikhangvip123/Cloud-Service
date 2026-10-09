@@ -1,0 +1,193 @@
+name: Terraform Plan And Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options: [sit, uat, prod]
+      operation:
+        description: Stop after plan or continue to an approved apply
+        required: true
+        type: choice
+        options: [plan, apply]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: terraform-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-southeast-1
+  PYTHON_VERSION: "3.12"
+  TERRAFORM_VERSION: "1.9.8"
+
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Restrict deployments to main
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "::error::Terraform deployment workflows must run from main."
+            exit 1
+          fi
+
+  quality:
+    needs: guard
+    uses: ./.github/workflows/ci.yml
+
+  plan:
+    needs: quality
+    runs-on: ubuntu-24.04
+    environment: ${{ format('{0}-plan', inputs.environment) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: infrastructure/requirements.txt
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: pa-${{ inputs.environment }}-terraform-plan
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+      - name: Download tested Lambda packages
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-packages
+          path: infrastructure/packages
+      - name: Render protected Terraform inputs
+        env:
+          CI_ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          CI_SES_SENDER_EMAIL: ${{ secrets.SES_SENDER_EMAIL }}
+          CI_IDENTITY_CENTER_PORTAL_URL: ${{ secrets.IDENTITY_CENTER_PORTAL_URL }}
+          CI_APPROVAL_BASE_URL: ${{ secrets.APPROVAL_BASE_URL }}
+          CI_JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          CI_JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          CI_JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          CI_API_KEY_VALUE: ${{ secrets.API_KEY_VALUE }}
+          CI_WEBHOOK_HMAC_SECRET: ${{ secrets.WEBHOOK_HMAC_SECRET }}
+          CI_APPROVAL_TOKEN_SECRET: ${{ secrets.APPROVAL_TOKEN_SECRET }}
+          CI_TARGET_ACCOUNTS_JSON: ${{ secrets.TARGET_ACCOUNTS_JSON }}
+        run: >-
+          python infrastructure/scripts/render_ci_tfvars.py
+          --environment ${{ inputs.environment }}
+          --github-mask
+          --output infrastructure/terraform/ci.tfvars.json
+      - name: Initialize environment backend
+        working-directory: infrastructure/terraform
+        run: terraform init -input=false -backend-config=backend/${{ inputs.environment }}.hcl
+      - name: Validate Terraform
+        working-directory: infrastructure/terraform
+        run: terraform validate
+      - name: Create encrypted saved plan
+        working-directory: infrastructure/terraform
+        shell: bash
+        env:
+          TFPLAN_ENCRYPTION_KEY: ${{ secrets.TFPLAN_ENCRYPTION_KEY }}
+        run: |
+          if [[ ${#TFPLAN_ENCRYPTION_KEY} -lt 32 ]]; then
+            echo "::error::TFPLAN_ENCRYPTION_KEY must contain at least 32 characters."
+            exit 1
+          fi
+          set +e
+          terraform plan -input=false -no-color \
+            -var-file=ci.tfvars.json \
+            -out=tfplan >tfplan.log 2>&1
+          status=$?
+          set -e
+          if [[ "${status}" -ne 0 ]]; then
+            echo "::error::Terraform plan failed; raw output is withheld because it may contain secrets."
+            exit "${status}"
+          fi
+          terraform show -json tfplan >tfplan.json
+          python ../scripts/summarize_tfplan.py tfplan.json >>"${GITHUB_STEP_SUMMARY}"
+          openssl enc -aes-256-cbc -pbkdf2 -salt \
+            -in tfplan -out tfplan.enc \
+            -pass env:TFPLAN_ENCRYPTION_KEY
+      - name: Remove plaintext Terraform data
+        if: always()
+        working-directory: infrastructure/terraform
+        run: rm -f ci.tfvars.json tfplan tfplan.json tfplan.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terraform-${{ inputs.environment }}-${{ github.run_id }}
+          path: |
+            infrastructure/terraform/tfplan.enc
+            infrastructure/packages/*.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  apply:
+    if: inputs.operation == 'apply'
+    needs: plan
+    runs-on: ubuntu-24.04
+    environment: ${{ format('{0}-apply', inputs.environment) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: infrastructure/requirements.txt
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: pa-${{ inputs.environment }}-terraform-apply
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: terraform-${{ inputs.environment }}-${{ github.run_id }}
+          path: infrastructure
+      - name: Initialize environment backend
+        working-directory: infrastructure/terraform
+        run: terraform init -input=false -backend-config=backend/${{ inputs.environment }}.hcl
+      - name: Decrypt reviewed plan
+        working-directory: infrastructure/terraform
+        shell: bash
+        env:
+          TFPLAN_ENCRYPTION_KEY: ${{ secrets.TFPLAN_ENCRYPTION_KEY }}
+        run: |
+          if [[ ${#TFPLAN_ENCRYPTION_KEY} -lt 32 ]]; then
+            echo "::error::TFPLAN_ENCRYPTION_KEY must contain at least 32 characters."
+            exit 1
+          fi
+          openssl enc -d -aes-256-cbc -pbkdf2 \
+            -in tfplan.enc -out tfplan \
+            -pass env:TFPLAN_ENCRYPTION_KEY
+      - name: Apply reviewed plan
+        working-directory: infrastructure/terraform
+        shell: bash
+        run: |
+          set +e
+          terraform apply -input=false -no-color tfplan >tfapply.log 2>&1
+          status=$?
+          set -e
+          if [[ "${status}" -ne 0 ]]; then
+            echo "::error::Terraform apply failed; raw output is withheld because it may contain sensitive values."
+            exit "${status}"
+          fi
+      - name: Install mapping dependencies
+        run: python -m pip install --disable-pip-version-check -r infrastructure/requirements.txt
+      - name: Refresh access group mapping
+        run: >-
+          python infrastructure/scripts/populate_access_group_mapping.py
+          --terraform-dir infrastructure/terraform
+      - name: Remove decrypted plan
+        if: always()
+        working-directory: infrastructure/terraform
+        run: rm -f tfplan tfapply.log
