@@ -46,8 +46,7 @@ def validate_inputs(
 def expand_target_accounts(value: Any, target_account_arns: list[str]) -> Any:
     if isinstance(value, dict):
         return {
-            key: expand_target_accounts(item, target_account_arns)
-            for key, item in value.items()
+            key: expand_target_accounts(item, target_account_arns) for key, item in value.items()
         }
     if isinstance(value, list):
         expanded = []
@@ -144,15 +143,13 @@ def main() -> None:
     instance_id = getpass.getpass(
         "IAM Identity Center instance ID, ssoins-... (input hidden): "
     ).strip()
-    identity_store_id = getpass.getpass(
-        "Identity Store ID (input hidden): "
-    ).strip()
+    identity_store_id = getpass.getpass("Identity Store ID (input hidden): ").strip()
     target_input = getpass.getpass(
         "Target AWS account IDs, comma-separated; blank uses deployment account: "
     ).strip()
-    target_account_ids = [
-        item.strip() for item in target_input.split(",") if item.strip()
-    ] or [account_id]
+    target_account_ids = [item.strip() for item in target_input.split(",") if item.strip()] or [
+        account_id
+    ]
 
     outputs = render_templates(
         template_dir,

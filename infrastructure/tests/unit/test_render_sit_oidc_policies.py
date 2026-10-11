@@ -17,9 +17,7 @@ from scripts.render_sit_oidc_policies import (
 
 
 TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "iam" / "github-actions"
-SIT_BACKEND_CONFIG = (
-    Path(__file__).resolve().parents[2] / "terraform" / "backend" / "sit.hcl"
-)
+SIT_BACKEND_CONFIG = Path(__file__).resolve().parents[2] / "terraform" / "backend" / "sit.hcl"
 RENDER_ARGS = (
     "123456789012",
     "ssoins-1234567890abcdef",
@@ -97,9 +95,7 @@ def test_backend_policies_target_bootstrapped_sit_bucket(template_name, state_si
     policy = rendered(template_name)
     bucket = sit_state_bucket()
 
-    assert statement(policy, "ListSitStatePrefix")["Resource"] == (
-        f"arn:aws:s3:::{bucket}"
-    )
+    assert statement(policy, "ListSitStatePrefix")["Resource"] == (f"arn:aws:s3:::{bucket}")
     assert statement(policy, state_sid)["Resource"] == (
         f"arn:aws:s3:::{bucket}/production-access-portal/sit/terraform.tfstate"
     )
@@ -121,9 +117,7 @@ def test_identity_center_writes_are_scoped_to_sit_inputs():
     resources = assignment["Resource"]
 
     assert "arn:aws:sso:::instance/ssoins-1234567890abcdef" in resources
-    assert (
-        "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/*" in resources
-    )
+    assert "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/*" in resources
     assert "arn:aws:sso:::account/123456789012" in resources
     assert "*" not in resources
 
@@ -157,7 +151,10 @@ def test_policies_do_not_use_service_wide_actions():
 
 @pytest.mark.parametrize(
     "account_id",
-    ["not-an-account", "\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19\uff10\uff11\uff12"],
+    [
+        "not-an-account",
+        "\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19\uff10\uff11\uff12",
+    ],
 )
 def test_render_policy_rejects_invalid_account_id(account_id):
     template = TEMPLATE_DIR / "sit-backend-plan-policy.template.json"
