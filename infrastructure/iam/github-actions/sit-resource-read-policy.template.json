@@ -1,0 +1,213 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadLambdaExecutionRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRoleTags"
+      ],
+      "Resource": [
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-executor-role-ap-southeast-1",
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-expiry-role-ap-southeast-1",
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-email-approval-role-ap-southeast-1"
+      ]
+    },
+    {
+      "Sid": "ReadLambdaManagedPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion"
+      ],
+      "Resource": "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+    },
+    {
+      "Sid": "ReadSitLambdaFunctionsLayersAndMappings",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetFunctionCodeSigningConfig",
+        "lambda:GetRuntimeManagementConfig",
+        "lambda:GetPolicy",
+        "lambda:GetLayerVersion",
+        "lambda:ListVersionsByFunction",
+        "lambda:ListTags",
+        "lambda:GetEventSourceMapping"
+      ],
+      "Resource": [
+        "arn:aws:lambda:ap-southeast-1:__AWS_ACCOUNT_ID__:function:pa-sit-*",
+        "arn:aws:lambda:ap-southeast-1:__AWS_ACCOUNT_ID__:layer:pa-sit-*:*",
+        "arn:aws:lambda:ap-southeast-1:__AWS_ACCOUNT_ID__:event-source-mapping:*"
+      ]
+    },
+    {
+      "Sid": "ReadSitDynamoDBTables",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeContributorInsights",
+        "dynamodb:ListTagsOfResource"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:ap-southeast-1:__AWS_ACCOUNT_ID__:table/pa-sit-access-sessions-ap-southeast-1",
+        "arn:aws:dynamodb:ap-southeast-1:__AWS_ACCOUNT_ID__:table/pa-sit-access-sessions-ap-southeast-1/stream/*",
+        "arn:aws:dynamodb:ap-southeast-1:__AWS_ACCOUNT_ID__:table/pa-sit-approval-tokens-ap-southeast-1"
+      ]
+    },
+    {
+      "Sid": "ReadSitSecrets",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:GetResourcePolicy",
+        "secretsmanager:ListSecretVersionIds"
+      ],
+      "Resource": [
+        "arn:aws:secretsmanager:ap-southeast-1:__AWS_ACCOUNT_ID__:secret:pa-sit-jira-credentials-ap-southeast-1-*",
+        "arn:aws:secretsmanager:ap-southeast-1:__AWS_ACCOUNT_ID__:secret:pa-sit-webhook-auth-ap-southeast-1-*",
+        "arn:aws:secretsmanager:ap-southeast-1:__AWS_ACCOUNT_ID__:secret:pa-sit-access-group-mapping-ap-southeast-1-*",
+        "arn:aws:secretsmanager:ap-southeast-1:__AWS_ACCOUNT_ID__:secret:pa-sit-token-secret-ap-southeast-1-*"
+      ]
+    },
+    {
+      "Sid": "DiscoverIdentityCenterInstance",
+      "Effect": "Allow",
+      "Action": "sso:ListInstances",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadIdentityCenterPermissionSets",
+      "Effect": "Allow",
+      "Action": [
+        "sso:DescribePermissionSet",
+        "sso:ListPermissionSets",
+        "sso:ListManagedPoliciesInPermissionSet",
+        "sso:ListAccountsForProvisionedPermissionSet",
+        "sso:ListTagsForResource"
+      ],
+      "Resource": [
+        "arn:aws:sso:::instance/__SSO_INSTANCE_ID__",
+        "arn:aws:sso:::permissionSet/__SSO_INSTANCE_ID__/*"
+      ]
+    },
+    {
+      "Sid": "ReadIdentityCenterAssignments",
+      "Effect": "Allow",
+      "Action": [
+        "sso:ListAccountAssignments",
+        "sso:ListPermissionSetsProvisionedToAccount"
+      ],
+      "Resource": [
+        "arn:aws:sso:::instance/__SSO_INSTANCE_ID__",
+        "arn:aws:sso:::permissionSet/__SSO_INSTANCE_ID__/*",
+        "__TARGET_ACCOUNT_ARNS__"
+      ]
+    },
+    {
+      "Sid": "ReadIdentityCenterOperationStatus",
+      "Effect": "Allow",
+      "Action": [
+        "sso:DescribeAccountAssignmentCreationStatus",
+        "sso:DescribeAccountAssignmentDeletionStatus",
+        "sso:DescribePermissionSetProvisioningStatus"
+      ],
+      "Resource": "arn:aws:sso:::instance/__SSO_INSTANCE_ID__"
+    },
+    {
+      "Sid": "ReadSitIdentityStoreGroups",
+      "Effect": "Allow",
+      "Action": [
+        "identitystore:DescribeGroup",
+        "identitystore:ListGroups"
+      ],
+      "Resource": [
+        "arn:aws:identitystore::__AWS_ACCOUNT_ID__:identitystore/__IDENTITY_STORE_ID__",
+        "arn:aws:identitystore:::group/*"
+      ]
+    },
+    {
+      "Sid": "ReadApiGatewayResources",
+      "Effect": "Allow",
+      "Action": "apigateway:GET",
+      "Resource": [
+        "arn:aws:apigateway:ap-southeast-1::/restapis*",
+        "arn:aws:apigateway:ap-southeast-1::/apikeys*",
+        "arn:aws:apigateway:ap-southeast-1::/usageplans*",
+        "arn:aws:apigateway:ap-southeast-1::/tags/*"
+      ]
+    },
+    {
+      "Sid": "ReadSitLogsAndAlarms",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "logs:DescribeMetricFilters",
+        "logs:ListTagsForResource",
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadSitNotifications",
+      "Effect": "Allow",
+      "Action": [
+        "sns:GetTopicAttributes",
+        "sns:GetSubscriptionAttributes",
+        "sns:ListSubscriptionsByTopic",
+        "sns:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadSesIdentityStatus",
+      "Effect": "Allow",
+      "Action": "ses:GetIdentityVerificationAttributes",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadSitAuditBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketAcl",
+        "s3:GetBucketCORS",
+        "s3:GetBucketLocation",
+        "s3:GetBucketLogging",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketRequestPayment",
+        "s3:GetBucketTagging",
+        "s3:GetBucketVersioning",
+        "s3:GetBucketWebsite",
+        "s3:GetAccelerateConfiguration",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetLifecycleConfiguration",
+        "s3:GetReplicationConfiguration",
+        "s3:GetBucketObjectLockConfiguration",
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::pa-sit-cloudtrail-__AWS_ACCOUNT_ID__-ap-southeast-1"
+    },
+    {
+      "Sid": "ReadSitCloudTrail",
+      "Effect": "Allow",
+      "Action": [
+        "cloudtrail:DescribeTrails",
+        "cloudtrail:GetTrail",
+        "cloudtrail:GetTrailStatus",
+        "cloudtrail:GetEventSelectors",
+        "cloudtrail:ListTags"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

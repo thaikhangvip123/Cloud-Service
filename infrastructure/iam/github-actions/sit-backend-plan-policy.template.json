@@ -1,0 +1,36 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListSitStatePrefix",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::sb-sit-terraform-state-ap-southeast-1-52123818",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "production-access-portal/sit/terraform.tfstate",
+            "production-access-portal/sit/terraform.tfstate/*"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadSitState",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::sb-sit-terraform-state-ap-southeast-1-52123818/production-access-portal/sit/terraform.tfstate"
+    },
+    {
+      "Sid": "LockSitState",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeTable",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:DeleteItem"
+      ],
+      "Resource": "arn:aws:dynamodb:ap-southeast-1:__AWS_ACCOUNT_ID__:table/sb-sit-terraform-lock-ap-southeast-1"
+    }
+  ]
+}
