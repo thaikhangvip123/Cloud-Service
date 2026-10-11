@@ -1,0 +1,101 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageSitApplicationTables",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:CreateTable",
+        "dynamodb:UpdateTable",
+        "dynamodb:DeleteTable",
+        "dynamodb:UpdateTimeToLive",
+        "dynamodb:UpdateContinuousBackups",
+        "dynamodb:TagResource",
+        "dynamodb:UntagResource"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:ap-southeast-1:__AWS_ACCOUNT_ID__:table/pa-sit-access-sessions-ap-southeast-1",
+        "arn:aws:dynamodb:ap-southeast-1:__AWS_ACCOUNT_ID__:table/pa-sit-approval-tokens-ap-southeast-1"
+      ]
+    },
+    {
+      "Sid": "ManageSitSecrets",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:CreateSecret",
+        "secretsmanager:UpdateSecret",
+        "secretsmanager:DeleteSecret",
+        "secretsmanager:PutSecretValue",
+        "secretsmanager:UpdateSecretVersionStage",
+        "secretsmanager:TagResource",
+        "secretsmanager:UntagResource"
+      ],
+      "Resource": "arn:aws:secretsmanager:ap-southeast-1:__AWS_ACCOUNT_ID__:secret:pa-sit-*"
+    },
+    {
+      "Sid": "ManageSitPermissionSets",
+      "Effect": "Allow",
+      "Action": [
+        "sso:CreatePermissionSet",
+        "sso:UpdatePermissionSet",
+        "sso:DeletePermissionSet",
+        "sso:AttachManagedPolicyToPermissionSet",
+        "sso:DetachManagedPolicyFromPermissionSet"
+      ],
+      "Resource": [
+        "arn:aws:sso:::instance/__SSO_INSTANCE_ID__",
+        "arn:aws:sso:::permissionSet/__SSO_INSTANCE_ID__/*"
+      ]
+    },
+    {
+      "Sid": "TagSitPermissionSets",
+      "Effect": "Allow",
+      "Action": [
+        "sso:TagResource",
+        "sso:UntagResource"
+      ],
+      "Resource": "arn:aws:sso:::permissionSet/__SSO_INSTANCE_ID__/*"
+    },
+    {
+      "Sid": "ManageSitAccountAssignments",
+      "Effect": "Allow",
+      "Action": [
+        "sso:ProvisionPermissionSet",
+        "sso:CreateAccountAssignment",
+        "sso:DeleteAccountAssignment"
+      ],
+      "Resource": [
+        "arn:aws:sso:::instance/__SSO_INSTANCE_ID__",
+        "arn:aws:sso:::permissionSet/__SSO_INSTANCE_ID__/*",
+        "__TARGET_ACCOUNT_ARNS__"
+      ]
+    },
+    {
+      "Sid": "CreateSitIdentityStoreGroups",
+      "Effect": "Allow",
+      "Action": "identitystore:CreateGroup",
+      "Resource": "arn:aws:identitystore::__AWS_ACCOUNT_ID__:identitystore/__IDENTITY_STORE_ID__"
+    },
+    {
+      "Sid": "ManageSitIdentityStoreGroups",
+      "Effect": "Allow",
+      "Action": [
+        "identitystore:UpdateGroup",
+        "identitystore:DeleteGroup"
+      ],
+      "Resource": [
+        "arn:aws:identitystore::__AWS_ACCOUNT_ID__:identitystore/__IDENTITY_STORE_ID__",
+        "arn:aws:identitystore:::group/*"
+      ]
+    },
+    {
+      "Sid": "ManageSesSenderIdentity",
+      "Effect": "Allow",
+      "Action": [
+        "ses:VerifyEmailIdentity",
+        "ses:DeleteIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

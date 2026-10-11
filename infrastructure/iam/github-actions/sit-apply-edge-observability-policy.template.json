@@ -1,0 +1,97 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageSitApiGateway",
+      "Effect": "Allow",
+      "Action": [
+        "apigateway:POST",
+        "apigateway:PUT",
+        "apigateway:PATCH",
+        "apigateway:DELETE"
+      ],
+      "Resource": [
+        "arn:aws:apigateway:ap-southeast-1::/restapis*",
+        "arn:aws:apigateway:ap-southeast-1::/apikeys*",
+        "arn:aws:apigateway:ap-southeast-1::/usageplans*",
+        "arn:aws:apigateway:ap-southeast-1::/tags/*"
+      ]
+    },
+    {
+      "Sid": "ManageSitLambdaLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:PutRetentionPolicy",
+        "logs:DeleteRetentionPolicy",
+        "logs:TagResource",
+        "logs:UntagResource",
+        "logs:PutMetricFilter",
+        "logs:DeleteMetricFilter"
+      ],
+      "Resource": "arn:aws:logs:ap-southeast-1:__AWS_ACCOUNT_ID__:log-group:/aws/lambda/pa-sit-*"
+    },
+    {
+      "Sid": "ManageSitCloudWatchAlarms",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricAlarm",
+        "cloudwatch:DeleteAlarms",
+        "cloudwatch:TagResource",
+        "cloudwatch:UntagResource"
+      ],
+      "Resource": "arn:aws:cloudwatch:ap-southeast-1:__AWS_ACCOUNT_ID__:alarm:pa-sit-*"
+    },
+    {
+      "Sid": "ManageSitAlertTopic",
+      "Effect": "Allow",
+      "Action": [
+        "sns:CreateTopic",
+        "sns:DeleteTopic",
+        "sns:SetTopicAttributes",
+        "sns:TagResource",
+        "sns:UntagResource",
+        "sns:Subscribe",
+        "sns:SetSubscriptionAttributes"
+      ],
+      "Resource": "arn:aws:sns:ap-southeast-1:__AWS_ACCOUNT_ID__:pa-sit-alerts-ap-southeast-1"
+    },
+    {
+      "Sid": "RemoveSitAlertSubscriptions",
+      "Effect": "Allow",
+      "Action": "sns:Unsubscribe",
+      "Resource": "arn:aws:sns:ap-southeast-1:__AWS_ACCOUNT_ID__:pa-sit-alerts-ap-southeast-1"
+    },
+    {
+      "Sid": "ManageSitAuditBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:DeleteBucket",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutEncryptionConfiguration",
+        "s3:PutBucketVersioning",
+        "s3:PutBucketTagging"
+      ],
+      "Resource": "arn:aws:s3:::pa-sit-cloudtrail-__AWS_ACCOUNT_ID__-ap-southeast-1"
+    },
+    {
+      "Sid": "ManageSitCloudTrail",
+      "Effect": "Allow",
+      "Action": [
+        "cloudtrail:CreateTrail",
+        "cloudtrail:UpdateTrail",
+        "cloudtrail:DeleteTrail",
+        "cloudtrail:StartLogging",
+        "cloudtrail:StopLogging",
+        "cloudtrail:PutEventSelectors",
+        "cloudtrail:AddTags",
+        "cloudtrail:RemoveTags"
+      ],
+      "Resource": "arn:aws:cloudtrail:ap-southeast-1:__AWS_ACCOUNT_ID__:trail/pa-sit-audit-ap-southeast-1"
+    }
+  ]
+}

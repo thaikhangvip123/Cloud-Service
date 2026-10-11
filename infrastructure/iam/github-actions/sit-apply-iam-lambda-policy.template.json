@@ -1,0 +1,110 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageLambdaExecutionRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:DeleteRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy"
+      ],
+      "Resource": [
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-executor-role-ap-southeast-1",
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-expiry-role-ap-southeast-1",
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-email-approval-role-ap-southeast-1"
+      ]
+    },
+    {
+      "Sid": "AttachLambdaBasicExecutionPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": [
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-executor-role-ap-southeast-1",
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-expiry-role-ap-southeast-1",
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-email-approval-role-ap-southeast-1"
+      ],
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        }
+      }
+    },
+    {
+      "Sid": "PassOnlyLambdaExecutionRoles",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": [
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-executor-role-ap-southeast-1",
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-expiry-role-ap-southeast-1",
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-email-approval-role-ap-southeast-1"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "lambda.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "ManageSitLambdaFunctionsAndLayers",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:DeleteFunction",
+        "lambda:AddPermission",
+        "lambda:RemovePermission",
+        "lambda:PublishLayerVersion",
+        "lambda:DeleteLayerVersion",
+        "lambda:TagResource",
+        "lambda:UntagResource"
+      ],
+      "Resource": [
+        "arn:aws:lambda:ap-southeast-1:__AWS_ACCOUNT_ID__:function:pa-sit-*",
+        "arn:aws:lambda:ap-southeast-1:__AWS_ACCOUNT_ID__:layer:pa-sit-*"
+      ]
+    },
+    {
+      "Sid": "CreateExpiryEventSourceMapping",
+      "Effect": "Allow",
+      "Action": "lambda:CreateEventSourceMapping",
+      "Resource": "*",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:FunctionArn": "arn:aws:lambda:ap-southeast-1:__AWS_ACCOUNT_ID__:function:pa-sit-expiry-ap-southeast-1"
+        }
+      }
+    },
+    {
+      "Sid": "ManageExpiryEventSourceMappings",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:UpdateEventSourceMapping",
+        "lambda:DeleteEventSourceMapping"
+      ],
+      "Resource": "arn:aws:lambda:ap-southeast-1:__AWS_ACCOUNT_ID__:event-source-mapping:*",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:FunctionArn": "arn:aws:lambda:ap-southeast-1:__AWS_ACCOUNT_ID__:function:pa-sit-expiry-ap-southeast-1"
+        }
+      }
+    },
+    {
+      "Sid": "TagExpiryEventSourceMappings",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:TagResource",
+        "lambda:UntagResource"
+      ],
+      "Resource": "arn:aws:lambda:ap-southeast-1:__AWS_ACCOUNT_ID__:event-source-mapping:*"
+    }
+  ]
+}
