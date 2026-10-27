@@ -31,3 +31,6 @@ tfplan.*
 *.zip
 *.pem
 *.key
+
+# Generated IAM policies with local account identifiers
+infrastructure/iam/github-actions/generated/
