@@ -62,9 +62,11 @@ module "ses" {
 module "lambdas" {
   source = "./modules/lambda-functions"
 
+  environment                 = var.environment
   resource_prefix             = local.resource_prefix
   region                      = var.aws_region
   identity_store_id           = module.identity_center.identity_store_id
+  access_group_ids            = module.access_groups.group_ids
   access_sessions_table       = module.access_sessions.table_name
   access_sessions_stream_arn  = module.access_sessions.stream_arn
   approval_tokens_table       = module.approval_tokens.table_name

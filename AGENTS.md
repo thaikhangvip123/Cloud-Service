@@ -132,7 +132,19 @@ If a `Makefile`, `tox.ini`, `pyproject.toml`, or CI config defines these differe
 - **Never run AWS write operations against production** (CLI, boto3, scripts, console automation): no `CreateGroupMembership`, `DeleteGroupMembership`, `PutSecretValue`, etc. Production changes go through the pipeline and humans only.
 - **Never commit, print, log, or paste secrets**: API keys, HMAC secrets, Jira credentials, token secret, real account IDs in examples, real emails. Use placeholders (`123456789012`, `user@company.com`).
 - **Never grant standing access**, add static IAM users/keys, or bypass Jira approval, in code, tests, or scripts.
-- **Never use `AdministratorAccess`/wildcard (`*`) resources** in Lambda IAM policies. Scope to specific ARNs.
+- **Never use `AdministratorAccess`, wildcard actions (`Action = "*"`), or an unscoped
+  `Resource = "*"`** in Lambda IAM policies. Scope permissions to specific ARNs wherever
+  AWS supports resource-level authorization.
+- **Temporary SIT-only exception:** in the Lambda Expiry role, only the
+  `dynamodb:ListStreams` action may use `Resource = "*"` because AWS does not support resource-level
+  permissions or service-specific condition keys for that action. Keep it in a dedicated
+  single-action statement, document it in the changelog and PR, and do not carry the exception
+  into UAT or PROD. Replace the DynamoDB TTL/Streams expiry path with the approved precise
+  scheduler design before those environments are deployed.
+- ARN patterns limited to a specific AWS service and resource type (for example,
+  `arn:aws:identitystore:::membership/*`) are allowed only when the resource ID is created or
+  discovered at runtime and a static ARN cannot be known before the request. Include all statically
+  known IDs, such as project access group IDs, as explicit ARNs for write actions.
 - **Never disable or weaken**: constant-time comparison, HMAC verification, JSON schema validation, token single-use check, TTL expiry, retry/alarm on revoke failure.
 - **Never edit Terraform state** by hand, and never commit `.tfstate`, `tfplan`, `.terraform/`, `*.zip` build artifacts, or `.env` files.
 - **Never `git push --force`**, rewrite shared history, or merge your own PR.
@@ -363,6 +375,10 @@ These come from the project document. Treat them as **things to check**, and rai
 6. **Executor IAM** lists `identitystore:UpdateUser` / `DescribeUser` "for immediate revocation" (`immediate_revoke_with_user_tag`) while Expiry holds `DeleteGroupMembership`. Review who truly needs what before adding or removing permissions.
 7. **Mapping cache (5 min)**: after `populate_access_group_mapping.py` runs, warm Lambdas can serve the old mapping for up to 5 minutes. Account for this in tests and rollout steps.
 8. **Legacy sessions**: Lambda Expiry still has a legacy (direct assignment) branch. Do not remove it without confirming no legacy sessions remain.
+9. **SIT `dynamodb:ListStreams` IAM exception**: AWS does not support resource-level permissions
+   or service-specific condition keys for `dynamodb:ListStreams`. A dedicated
+   `Resource = "*"` statement is temporarily approved only for the SIT Lambda Expiry role. UAT
+   and PROD must use the approved precise scheduler design and must not inherit this exception.
 
 ---
 
