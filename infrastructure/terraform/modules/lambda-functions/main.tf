@@ -1,3 +1,13 @@
+variable "environment" {
+  type        = string
+  description = "Deployment environment used to enforce environment-specific IAM restrictions."
+
+  validation {
+    condition     = contains(["sit", "uat", "prod"], var.environment)
+    error_message = "Environment must be one of: sit, uat, prod."
+  }
+}
+
 variable "resource_prefix" {
   type = string
 }
@@ -8,6 +18,22 @@ variable "region" {
 
 variable "identity_store_id" {
   type = string
+}
+
+variable "access_group_ids" {
+  type        = map(string)
+  description = "Identity Store group IDs managed by this deployment."
+
+  validation {
+    condition = (
+      length(var.access_group_ids) > 0 &&
+      alltrue([
+        for group_id in values(var.access_group_ids) :
+        length(trimspace(group_id)) > 0
+      ])
+    )
+    error_message = "Access group IDs must contain at least one non-empty group ID."
+  }
 }
 
 variable "access_sessions_table" {
@@ -80,9 +106,27 @@ locals {
       package = "${var.packages_dir}/email_approval.zip"
     }
   }
-  sessions_arn     = "arn:${data.aws_partition.current.partition}:dynamodb:${var.region}:${data.aws_caller_identity.current.account_id}:table/${var.access_sessions_table}"
-  tokens_arn       = "arn:${data.aws_partition.current.partition}:dynamodb:${var.region}:${data.aws_caller_identity.current.account_id}:table/${var.approval_tokens_table}"
-  ses_identity_arn = "arn:${data.aws_partition.current.partition}:ses:${var.region}:${data.aws_caller_identity.current.account_id}:identity/${var.ses_sender_email}"
+  sessions_arn       = "arn:${data.aws_partition.current.partition}:dynamodb:${var.region}:${data.aws_caller_identity.current.account_id}:table/${var.access_sessions_table}"
+  tokens_arn         = "arn:${data.aws_partition.current.partition}:dynamodb:${var.region}:${data.aws_caller_identity.current.account_id}:table/${var.approval_tokens_table}"
+  ses_identity_arn   = "arn:${data.aws_partition.current.partition}:ses:${var.region}:${data.aws_caller_identity.current.account_id}:identity/${var.ses_sender_email}"
+  identity_store_arn = "arn:${data.aws_partition.current.partition}:identitystore::${data.aws_caller_identity.current.account_id}:identitystore/${var.identity_store_id}"
+
+  identity_store_group_arns = [
+    for group_id in sort(values(var.access_group_ids)) :
+    "arn:${data.aws_partition.current.partition}:identitystore:::group/${group_id}"
+  ]
+
+  identity_store_all_groups_arn = (
+    "arn:${data.aws_partition.current.partition}:identitystore:::group/*"
+  )
+
+  identity_store_all_users_arn = (
+    "arn:${data.aws_partition.current.partition}:identitystore:::user/*"
+  )
+
+  identity_store_all_memberships_arn = (
+    "arn:${data.aws_partition.current.partition}:identitystore:::membership/*"
+  )
 }
 
 resource "aws_iam_role" "lambda" {
@@ -131,14 +175,53 @@ resource "aws_iam_role_policy" "executor" {
       {
         Effect = "Allow"
         Action = [
-          "identitystore:CreateGroupMembership",
-          "identitystore:DeleteGroupMembership",
-          "identitystore:DescribeGroup",
           "identitystore:ListUsers",
-          "identitystore:DescribeUser",
-          "identitystore:ListGroupMembershipsForMember"
+          "identitystore:DescribeUser"
         ]
-        Resource = "*"
+        Resource = [
+          local.identity_store_arn,
+          local.identity_store_all_users_arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = ["identitystore:DescribeGroup"]
+        Resource = [
+          local.identity_store_arn,
+          local.identity_store_all_groups_arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = ["identitystore:CreateGroupMembership"]
+        Resource = concat(
+          [
+            local.identity_store_arn,
+            local.identity_store_all_users_arn
+          ],
+          local.identity_store_group_arns
+        )
+      },
+      {
+        Effect = "Allow"
+        Action = ["identitystore:DeleteGroupMembership"]
+        Resource = concat(
+          [
+            local.identity_store_arn,
+            local.identity_store_all_users_arn,
+            local.identity_store_all_memberships_arn
+          ],
+          local.identity_store_group_arns
+        )
+      },
+      {
+        Effect = "Allow"
+        Action = ["identitystore:ListGroupMembershipsForMember"]
+        Resource = [
+          local.identity_store_arn,
+          local.identity_store_all_users_arn,
+          local.identity_store_all_memberships_arn
+        ]
       },
       {
         Effect   = "Allow"
@@ -157,45 +240,58 @@ resource "aws_iam_role_policy" "expiry" {
   role = aws_iam_role.lambda["expiry"].id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
-        Resource = [var.secret_arns["jira"]]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "dynamodb:DescribeStream",
-          "dynamodb:GetRecords",
-          "dynamodb:GetShardIterator"
-        ]
-        Resource = var.access_sessions_stream_arn
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["dynamodb:ListStreams"]
-        Resource = "*"
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["dynamodb:PutItem"]
-        Resource = local.sessions_arn
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["identitystore:DeleteGroupMembership"]
-        Resource = "*"
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["ses:SendEmail", "ses:SendRawEmail"]
-        Resource = local.ses_identity_arn
-        Condition = {
-          StringEquals = { "ses:FromAddress" = var.ses_sender_email }
+    Statement = concat(
+      [
+        {
+          Effect   = "Allow"
+          Action   = ["secretsmanager:GetSecretValue"]
+          Resource = [var.secret_arns["jira"]]
+        },
+        {
+          Effect = "Allow"
+          Action = [
+            "dynamodb:DescribeStream",
+            "dynamodb:GetRecords",
+            "dynamodb:GetShardIterator"
+          ]
+          Resource = var.access_sessions_stream_arn
         }
-      }
-    ]
+      ],
+      var.environment == "sit" ? [
+        {
+          Effect   = "Allow"
+          Action   = ["dynamodb:ListStreams"]
+          Resource = "*"
+        }
+      ] : [],
+      [
+        {
+          Effect   = "Allow"
+          Action   = ["dynamodb:PutItem"]
+          Resource = local.sessions_arn
+        },
+        {
+          Effect = "Allow"
+          Action = ["identitystore:DeleteGroupMembership"]
+          Resource = concat(
+            [
+              local.identity_store_arn,
+              local.identity_store_all_users_arn,
+              local.identity_store_all_memberships_arn
+            ],
+            local.identity_store_group_arns
+          )
+        },
+        {
+          Effect   = "Allow"
+          Action   = ["ses:SendEmail", "ses:SendRawEmail"]
+          Resource = local.ses_identity_arn
+          Condition = {
+            StringEquals = { "ses:FromAddress" = var.ses_sender_email }
+          }
+        }
+      ]
+    )
   })
 }
 
@@ -283,6 +379,13 @@ resource "aws_lambda_event_source_mapping" "expiry" {
   batch_size                     = 10
   maximum_retry_attempts         = 3
   bisect_batch_on_function_error = true
+
+  lifecycle {
+    precondition {
+      condition     = var.environment == "sit"
+      error_message = "DynamoDB Streams expiry is temporarily approved only for SIT. Implement the precise scheduler design before deploying UAT or PROD."
+    }
+  }
 }
 
 output "executor_name" {
