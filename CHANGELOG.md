@@ -23,6 +23,8 @@ recorded here.
   precondition that blocks the DynamoDB Streams expiry architecture in UAT and PROD.
 - Added regression tests that detect additional unscoped Lambda IAM resources or removal of the
   SIT-only deployment guard.
+- Reformatted the IAM regression test path expression after the first GitHub Actions Black check
+  reported that the file would be reformatted.
 
 ### Scope and risk
 
@@ -48,3 +50,4 @@ recorded here.
 - `black`, `pytest`, `flake8`, and `mypy` were not available in the local Python runtimes; CI must
   run the complete Python quality gates. The existing `.venv` still points to a removed Python 3.11
   installation.
+- A GitHub Actions rerun is pending to confirm the Black formatting correction.

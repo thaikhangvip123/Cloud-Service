@@ -4,9 +4,7 @@ import re
 from pathlib import Path
 
 
-LAMBDA_MODULE = (
-    Path(__file__).parents[2] / "terraform" / "modules" / "lambda-functions" / "main.tf"
-)
+LAMBDA_MODULE = Path(__file__).parents[2] / "terraform" / "modules" / "lambda-functions" / "main.tf"
 
 
 def test_only_approved_unscoped_resource_remains() -> None:
