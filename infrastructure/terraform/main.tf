@@ -6,6 +6,7 @@ module "permission_sets" {
   source = "./modules/identity-center-permission-sets"
 
   instance_arn      = module.identity_center.instance_arn
+  resource_prefix   = local.resource_prefix
   permission_sets   = local.permission_sets
   policy_arns       = local.policy_arns
   session_durations = local.session_durations
@@ -62,24 +63,25 @@ module "ses" {
 module "lambdas" {
   source = "./modules/lambda-functions"
 
-  environment                 = var.environment
-  resource_prefix             = local.resource_prefix
-  region                      = var.aws_region
-  identity_store_id           = module.identity_center.identity_store_id
-  access_group_ids            = module.access_groups.group_ids
-  access_sessions_table       = module.access_sessions.table_name
-  access_sessions_stream_arn  = module.access_sessions.stream_arn
-  approval_tokens_table       = module.approval_tokens.table_name
-  access_group_mapping_secret = module.secrets.access_group_mapping_secret_name
-  jira_credentials_secret     = module.secrets.jira_credentials_secret_name
-  webhook_auth_secret         = module.secrets.webhook_auth_secret_name
-  token_secret_name           = module.secrets.token_secret_name
-  secret_arns                 = module.secrets.secret_arns
-  ses_sender_email            = var.ses_sender_email
-  identity_center_portal_url  = var.identity_center_portal_url
-  approval_base_url           = var.approval_base_url
-  log_retention_days          = local.config.retention
-  packages_dir                = "${path.root}/../packages"
+  environment                  = var.environment
+  resource_prefix              = local.resource_prefix
+  region                       = var.aws_region
+  identity_store_id            = module.identity_center.identity_store_id
+  identity_center_instance_arn = module.identity_center.instance_arn
+  access_group_ids             = module.access_groups.group_ids
+  access_sessions_table        = module.access_sessions.table_name
+  access_sessions_stream_arn   = module.access_sessions.stream_arn
+  approval_tokens_table        = module.approval_tokens.table_name
+  access_group_mapping_secret  = module.secrets.access_group_mapping_secret_name
+  jira_credentials_secret      = module.secrets.jira_credentials_secret_name
+  webhook_auth_secret          = module.secrets.webhook_auth_secret_name
+  token_secret_name            = module.secrets.token_secret_name
+  secret_arns                  = module.secrets.secret_arns
+  ses_sender_email             = var.ses_sender_email
+  identity_center_portal_url   = var.identity_center_portal_url
+  approval_base_url            = var.approval_base_url
+  log_retention_days           = local.config.retention
+  packages_dir                 = "${path.root}/../packages"
 }
 
 module "api" {
@@ -94,6 +96,7 @@ module "api" {
   api_key_value           = var.api_key_value
   rate_limit              = local.config.rate
   quota_limit             = 10000
+  log_retention_days      = local.config.retention
   executor_invoke_arn     = module.lambdas.executor_invoke_arn
   email_lambda_invoke_arn = module.lambdas.email_approval_invoke_arn
 }

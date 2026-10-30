@@ -111,6 +111,43 @@ def test_apply_iam_policy_never_targets_deployment_roles():
     assert "iam:PassRole" in actions(policy)
 
 
+def test_apply_policy_manages_only_expected_scheduler_and_api_roles():
+    policy = rendered("sit-apply-iam-lambda-policy.template.json")
+    managed_roles = statement(policy, "ManageLambdaExecutionRoles")["Resource"]
+    api_pass_role = statement(policy, "PassApiGatewayCloudWatchRole")
+
+    assert any(
+        item.endswith("role/pa-sit-expiry-scheduler-role-ap-southeast-1") for item in managed_roles
+    )
+    assert any(
+        item.endswith("role/pa-sit-api-cloudwatch-role-ap-southeast-1") for item in managed_roles
+    )
+    assert api_pass_role["Resource"].endswith("role/pa-sit-api-cloudwatch-role-ap-southeast-1")
+    assert api_pass_role["Condition"]["StringEquals"]["iam:PassedToService"] == (
+        "apigateway.amazonaws.com"
+    )
+
+
+def test_scheduler_and_api_logging_permissions_are_environment_scoped():
+    apply_policy = rendered("sit-apply-edge-observability-policy.template.json")
+    read_policy = rendered("sit-resource-read-policy.template.json")
+
+    schedule_group_arn = (
+        "arn:aws:scheduler:ap-southeast-1:123456789012:"
+        "schedule-group/pa-sit-expiry-ap-southeast-1"
+    )
+    assert statement(apply_policy, "ManageSitExpiryScheduleGroup")["Resource"] == (
+        schedule_group_arn
+    )
+    assert statement(read_policy, "ReadSitExpiryScheduleGroup")["Resource"] == (schedule_group_arn)
+    log_resources = statement(apply_policy, "ManageSitApplicationLogs")["Resource"]
+    assert any("log-group:/aws/apigateway/pa-sit-*" in item for item in log_resources)
+    assert (
+        "arn:aws:apigateway:ap-southeast-1::/account"
+        in statement(apply_policy, "ManageSitApiGateway")["Resource"]
+    )
+
+
 def test_identity_center_writes_are_scoped_to_sit_inputs():
     policy = rendered("sit-apply-data-identity-policy.template.json")
     assignment = statement(policy, "ManageSitAccountAssignments")

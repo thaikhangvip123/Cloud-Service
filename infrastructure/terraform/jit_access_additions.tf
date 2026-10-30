@@ -68,30 +68,87 @@ resource "aws_cloudwatch_metric_alarm" "lambda_duration" {
   alarm_actions       = [aws_sns_topic.alerts.arn]
 }
 
+resource "aws_cloudwatch_metric_alarm" "scheduler_dropped_invocations" {
+  alarm_name          = "${local.resource_prefix}-scheduler-dropped-invocations"
+  namespace           = "AWS/Scheduler"
+  metric_name         = "InvocationDroppedCount"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  dimensions          = { ScheduleGroup = module.lambdas.expiry_schedule_group_name }
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+}
+
 resource "aws_cloudwatch_metric_alarm" "api_4xx_rate" {
   alarm_name          = "${local.resource_prefix}-api-4xx-rate"
-  namespace           = "AWS/ApiGateway"
-  metric_name         = "4XXError"
-  statistic           = "Average"
-  period              = 900
   evaluation_periods  = 1
-  threshold           = 0.20
+  threshold           = 20
   comparison_operator = "GreaterThanThreshold"
-  dimensions          = { ApiName = module.api.api_name, Stage = module.api.stage_name }
   alarm_actions       = [aws_sns_topic.alerts.arn]
+
+  metric_query {
+    id          = "rate"
+    expression  = "IF(requests > 0, 100 * errors / requests, 0)"
+    label       = "API Gateway 4xx rate"
+    return_data = true
+  }
+  metric_query {
+    id = "errors"
+    metric {
+      namespace   = "AWS/ApiGateway"
+      metric_name = "4XXError"
+      period      = 900
+      stat        = "Sum"
+      dimensions  = { ApiName = module.api.api_name, Stage = module.api.stage_name }
+    }
+  }
+  metric_query {
+    id = "requests"
+    metric {
+      namespace   = "AWS/ApiGateway"
+      metric_name = "Count"
+      period      = 900
+      stat        = "Sum"
+      dimensions  = { ApiName = module.api.api_name, Stage = module.api.stage_name }
+    }
+  }
 }
 
 resource "aws_cloudwatch_metric_alarm" "api_5xx_rate" {
   alarm_name          = "${local.resource_prefix}-api-5xx-rate"
-  namespace           = "AWS/ApiGateway"
-  metric_name         = "5XXError"
-  statistic           = "Average"
-  period              = 300
   evaluation_periods  = 1
-  threshold           = 0.01
+  threshold           = 1
   comparison_operator = "GreaterThanThreshold"
-  dimensions          = { ApiName = module.api.api_name, Stage = module.api.stage_name }
   alarm_actions       = [aws_sns_topic.alerts.arn]
+
+  metric_query {
+    id          = "rate"
+    expression  = "IF(requests > 0, 100 * errors / requests, 0)"
+    label       = "API Gateway 5xx rate"
+    return_data = true
+  }
+  metric_query {
+    id = "errors"
+    metric {
+      namespace   = "AWS/ApiGateway"
+      metric_name = "5XXError"
+      period      = 300
+      stat        = "Sum"
+      dimensions  = { ApiName = module.api.api_name, Stage = module.api.stage_name }
+    }
+  }
+  metric_query {
+    id = "requests"
+    metric {
+      namespace   = "AWS/ApiGateway"
+      metric_name = "Count"
+      period      = 300
+      stat        = "Sum"
+      dimensions  = { ApiName = module.api.api_name, Stage = module.api.stage_name }
+    }
+  }
 }
 
 resource "aws_cloudwatch_metric_alarm" "dynamodb_throttles" {

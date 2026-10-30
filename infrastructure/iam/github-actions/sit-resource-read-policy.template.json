@@ -14,17 +14,22 @@
       "Resource": [
         "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-executor-role-ap-southeast-1",
         "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-expiry-role-ap-southeast-1",
-        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-email-approval-role-ap-southeast-1"
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-email-approval-role-ap-southeast-1",
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-expiry-scheduler-role-ap-southeast-1",
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-api-cloudwatch-role-ap-southeast-1"
       ]
     },
     {
-      "Sid": "ReadLambdaManagedPolicy",
+      "Sid": "ReadAttachedAwsManagedPolicies",
       "Effect": "Allow",
       "Action": [
         "iam:GetPolicy",
         "iam:GetPolicyVersion"
       ],
-      "Resource": "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      "Resource": [
+        "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+        "arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs"
+      ]
     },
     {
       "Sid": "ReadSitLambdaFunctionsLayersAndMappings",
@@ -142,8 +147,18 @@
         "arn:aws:apigateway:ap-southeast-1::/restapis*",
         "arn:aws:apigateway:ap-southeast-1::/apikeys*",
         "arn:aws:apigateway:ap-southeast-1::/usageplans*",
-        "arn:aws:apigateway:ap-southeast-1::/tags/*"
+        "arn:aws:apigateway:ap-southeast-1::/tags/*",
+        "arn:aws:apigateway:ap-southeast-1::/account"
       ]
+    },
+    {
+      "Sid": "ReadSitExpiryScheduleGroup",
+      "Effect": "Allow",
+      "Action": [
+        "scheduler:GetScheduleGroup",
+        "scheduler:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:scheduler:ap-southeast-1:__AWS_ACCOUNT_ID__:schedule-group/pa-sit-expiry-ap-southeast-1"
     },
     {
       "Sid": "ReadSitLogsAndAlarms",

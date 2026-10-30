@@ -20,6 +20,10 @@ class Settings:
     require_hmac: bool = os.getenv("REQUIRE_HMAC", "true").lower() == "true"
     access_group_prefix: str = os.getenv("ACCESS_GROUP_PREFIX", "pa-")
     token_ttl_hours: int = int(os.getenv("TOKEN_TTL_HOURS", "24"))
+    identity_center_instance_arn: str = os.getenv("IDENTITY_CENTER_INSTANCE_ARN", "")
+    expiry_schedule_group: str = os.getenv("EXPIRY_SCHEDULE_GROUP", "")
+    expiry_scheduler_role_arn: str = os.getenv("EXPIRY_SCHEDULER_ROLE_ARN", "")
+    expiry_lambda_arn: str = os.getenv("EXPIRY_LAMBDA_ARN", "")
 
 
 settings = Settings()

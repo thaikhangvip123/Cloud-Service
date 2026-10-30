@@ -16,7 +16,9 @@
       "Resource": [
         "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-executor-role-ap-southeast-1",
         "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-expiry-role-ap-southeast-1",
-        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-email-approval-role-ap-southeast-1"
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-email-approval-role-ap-southeast-1",
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-expiry-scheduler-role-ap-southeast-1",
+        "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-api-cloudwatch-role-ap-southeast-1"
       ]
     },
     {
@@ -38,6 +40,20 @@
       }
     },
     {
+      "Sid": "AttachApiGatewayCloudWatchPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-api-cloudwatch-role-ap-southeast-1",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": "arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs"
+        }
+      }
+    },
+    {
       "Sid": "PassOnlyLambdaExecutionRoles",
       "Effect": "Allow",
       "Action": "iam:PassRole",
@@ -49,6 +65,17 @@
       "Condition": {
         "StringEquals": {
           "iam:PassedToService": "lambda.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "PassApiGatewayCloudWatchRole",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::__AWS_ACCOUNT_ID__:role/pa-sit-api-cloudwatch-role-ap-southeast-1",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "apigateway.amazonaws.com"
         }
       }
     },

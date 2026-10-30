@@ -20,6 +20,10 @@ variable "identity_store_id" {
   type = string
 }
 
+variable "identity_center_instance_arn" {
+  type = string
+}
+
 variable "access_group_ids" {
   type        = map(string)
   description = "Identity Store group IDs managed by this deployment."
@@ -110,6 +114,11 @@ locals {
   tokens_arn         = "arn:${data.aws_partition.current.partition}:dynamodb:${var.region}:${data.aws_caller_identity.current.account_id}:table/${var.approval_tokens_table}"
   ses_identity_arn   = "arn:${data.aws_partition.current.partition}:ses:${var.region}:${data.aws_caller_identity.current.account_id}:identity/${var.ses_sender_email}"
   identity_store_arn = "arn:${data.aws_partition.current.partition}:identitystore::${data.aws_caller_identity.current.account_id}:identitystore/${var.identity_store_id}"
+  expiry_lambda_arn  = "arn:${data.aws_partition.current.partition}:lambda:${var.region}:${data.aws_caller_identity.current.account_id}:function:${var.resource_prefix}-expiry-${var.region}"
+  schedule_group     = "${var.resource_prefix}-expiry-${var.region}"
+  schedule_group_arn = "arn:${data.aws_partition.current.partition}:scheduler:${var.region}:${data.aws_caller_identity.current.account_id}:schedule-group/${local.schedule_group}"
+  schedule_arn       = "arn:${data.aws_partition.current.partition}:scheduler:${var.region}:${data.aws_caller_identity.current.account_id}:schedule/${local.schedule_group}/*"
+  permission_set_arn = "${replace(var.identity_center_instance_arn, ":instance/", ":permissionSet/")}/*"
 
   identity_store_group_arns = [
     for group_id in sort(values(var.access_group_ids)) :
@@ -127,6 +136,35 @@ locals {
   identity_store_all_memberships_arn = (
     "arn:${data.aws_partition.current.partition}:identitystore:::membership/*"
   )
+}
+
+resource "aws_scheduler_schedule_group" "expiry" {
+  name = local.schedule_group
+}
+
+resource "aws_iam_role" "expiry_scheduler" {
+  name = "${var.resource_prefix}-expiry-scheduler-role-${var.region}"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "scheduler.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "expiry_scheduler" {
+  name = "invoke-expiry-lambda"
+  role = aws_iam_role.expiry_scheduler.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["lambda:InvokeFunction"]
+      Resource = local.expiry_lambda_arn
+    }]
+  })
 }
 
 resource "aws_iam_role" "lambda" {
@@ -230,6 +268,26 @@ resource "aws_iam_role_policy" "executor" {
         Condition = {
           StringEquals = { "ses:FromAddress" = var.ses_sender_email }
         }
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "scheduler:CreateSchedule",
+          "scheduler:GetSchedule",
+          "scheduler:DeleteSchedule"
+        ]
+        Resource = [
+          local.schedule_group_arn,
+          local.schedule_arn
+        ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = aws_iam_role.expiry_scheduler.arn
+        Condition = {
+          StringEquals = { "iam:PassedToService" = "scheduler.amazonaws.com" }
+        }
       }
     ]
   })
@@ -241,12 +299,7 @@ resource "aws_iam_role_policy" "expiry" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = concat(
-      [
-        {
-          Effect   = "Allow"
-          Action   = ["secretsmanager:GetSecretValue"]
-          Resource = [var.secret_arns["jira"]]
-        },
+      var.environment == "sit" ? [
         {
           Effect = "Allow"
           Action = [
@@ -256,7 +309,7 @@ resource "aws_iam_role_policy" "expiry" {
           ]
           Resource = var.access_sessions_stream_arn
         }
-      ],
+      ] : [],
       var.environment == "sit" ? [
         {
           Effect   = "Allow"
@@ -267,8 +320,27 @@ resource "aws_iam_role_policy" "expiry" {
       [
         {
           Effect   = "Allow"
-          Action   = ["dynamodb:PutItem"]
+          Action   = ["secretsmanager:GetSecretValue"]
+          Resource = [var.secret_arns["jira"]]
+        },
+        {
+          Effect = "Allow"
+          Action = [
+            "dynamodb:GetItem",
+            "dynamodb:PutItem"
+          ]
           Resource = local.sessions_arn
+        },
+        {
+          Effect = "Allow"
+          Action = [
+            "identitystore:ListUsers",
+            "identitystore:DescribeUser"
+          ]
+          Resource = [
+            local.identity_store_arn,
+            local.identity_store_all_users_arn
+          ]
         },
         {
           Effect = "Allow"
@@ -281,6 +353,17 @@ resource "aws_iam_role_policy" "expiry" {
             ],
             local.identity_store_group_arns
           )
+        },
+        {
+          Effect = "Allow"
+          Action = [
+            "sso:DeleteAccountAssignment",
+            "sso:DescribeAccountAssignmentDeletionStatus"
+          ]
+          Resource = [
+            var.identity_center_instance_arn,
+            local.permission_set_arn
+          ]
         },
         {
           Effect   = "Allow"
@@ -349,18 +432,22 @@ resource "aws_lambda_function" "this" {
 
   environment {
     variables = {
-      IDENTITY_STORE_ID           = var.identity_store_id
-      ACCESS_SESSIONS_TABLE       = var.access_sessions_table
-      APPROVAL_TOKENS_TABLE       = var.approval_tokens_table
-      ACCESS_GROUP_MAPPING_SECRET = var.access_group_mapping_secret
-      JIRA_CREDENTIALS_SECRET     = var.jira_credentials_secret
-      WEBHOOK_AUTH_SECRET         = var.webhook_auth_secret
-      TOKEN_SECRET_NAME           = var.token_secret_name
-      SES_SENDER_EMAIL            = var.ses_sender_email
-      IDENTITY_CENTER_PORTAL_URL  = var.identity_center_portal_url
-      APPROVAL_BASE_URL           = var.approval_base_url
-      ACCESS_GROUP_PREFIX         = "${var.resource_prefix}-"
-      REQUIRE_HMAC                = "true"
+      IDENTITY_STORE_ID            = var.identity_store_id
+      IDENTITY_CENTER_INSTANCE_ARN = var.identity_center_instance_arn
+      ACCESS_SESSIONS_TABLE        = var.access_sessions_table
+      APPROVAL_TOKENS_TABLE        = var.approval_tokens_table
+      ACCESS_GROUP_MAPPING_SECRET  = var.access_group_mapping_secret
+      JIRA_CREDENTIALS_SECRET      = var.jira_credentials_secret
+      WEBHOOK_AUTH_SECRET          = var.webhook_auth_secret
+      TOKEN_SECRET_NAME            = var.token_secret_name
+      SES_SENDER_EMAIL             = var.ses_sender_email
+      IDENTITY_CENTER_PORTAL_URL   = var.identity_center_portal_url
+      APPROVAL_BASE_URL            = var.approval_base_url
+      ACCESS_GROUP_PREFIX          = "${var.resource_prefix}-"
+      REQUIRE_HMAC                 = "true"
+      EXPIRY_SCHEDULE_GROUP        = aws_scheduler_schedule_group.expiry.name
+      EXPIRY_SCHEDULER_ROLE_ARN    = aws_iam_role.expiry_scheduler.arn
+      EXPIRY_LAMBDA_ARN            = local.expiry_lambda_arn
     }
   }
 }
@@ -373,6 +460,8 @@ resource "aws_cloudwatch_log_group" "this" {
 }
 
 resource "aws_lambda_event_source_mapping" "expiry" {
+  count = var.environment == "sit" ? 1 : 0
+
   event_source_arn               = var.access_sessions_stream_arn
   function_name                  = aws_lambda_function.this["expiry"].arn
   starting_position              = "LATEST"
@@ -380,12 +469,6 @@ resource "aws_lambda_event_source_mapping" "expiry" {
   maximum_retry_attempts         = 3
   bisect_batch_on_function_error = true
 
-  lifecycle {
-    precondition {
-      condition     = var.environment == "sit"
-      error_message = "DynamoDB Streams expiry is temporarily approved only for SIT. Implement the precise scheduler design before deploying UAT or PROD."
-    }
-  }
 }
 
 output "executor_name" {
@@ -402,6 +485,10 @@ output "executor_invoke_arn" {
 
 output "expiry_name" {
   value = aws_lambda_function.this["expiry"].function_name
+}
+
+output "expiry_schedule_group_name" {
+  value = aws_scheduler_schedule_group.expiry.name
 }
 
 output "email_approval_name" {

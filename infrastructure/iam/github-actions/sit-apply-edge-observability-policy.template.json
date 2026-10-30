@@ -14,11 +14,12 @@
         "arn:aws:apigateway:ap-southeast-1::/restapis*",
         "arn:aws:apigateway:ap-southeast-1::/apikeys*",
         "arn:aws:apigateway:ap-southeast-1::/usageplans*",
-        "arn:aws:apigateway:ap-southeast-1::/tags/*"
+        "arn:aws:apigateway:ap-southeast-1::/tags/*",
+        "arn:aws:apigateway:ap-southeast-1::/account"
       ]
     },
     {
-      "Sid": "ManageSitLambdaLogs",
+      "Sid": "ManageSitApplicationLogs",
       "Effect": "Allow",
       "Action": [
         "logs:CreateLogGroup",
@@ -30,7 +31,21 @@
         "logs:PutMetricFilter",
         "logs:DeleteMetricFilter"
       ],
-      "Resource": "arn:aws:logs:ap-southeast-1:__AWS_ACCOUNT_ID__:log-group:/aws/lambda/pa-sit-*"
+      "Resource": [
+        "arn:aws:logs:ap-southeast-1:__AWS_ACCOUNT_ID__:log-group:/aws/lambda/pa-sit-*",
+        "arn:aws:logs:ap-southeast-1:__AWS_ACCOUNT_ID__:log-group:/aws/apigateway/pa-sit-*"
+      ]
+    },
+    {
+      "Sid": "ManageSitExpiryScheduleGroup",
+      "Effect": "Allow",
+      "Action": [
+        "scheduler:CreateScheduleGroup",
+        "scheduler:DeleteScheduleGroup",
+        "scheduler:TagResource",
+        "scheduler:UntagResource"
+      ],
+      "Resource": "arn:aws:scheduler:ap-southeast-1:__AWS_ACCOUNT_ID__:schedule-group/pa-sit-expiry-ap-southeast-1"
     },
     {
       "Sid": "ManageSitCloudWatchAlarms",

@@ -23,6 +23,7 @@ def credentials():
 def test_update_status_discovers_transition_by_destination_name():
     session = Mock()
     session.request.side_effect = [
+        response(payload={"fields": {"status": {"name": "In Progress"}}}),
         response(payload={"transitions": [{"id": "31", "to": {"name": "Expired"}}]}),
         response(status=204),
     ]
@@ -30,7 +31,18 @@ def test_update_status_discovers_transition_by_destination_name():
 
     client.update_request_status("JIRA-1", "Expired")
 
-    assert session.request.call_args_list[1].kwargs["json"] == {"transition": {"id": "31"}}
+    assert session.request.call_args_list[2].kwargs["json"] == {"transition": {"id": "31"}}
+
+
+def test_update_status_is_idempotent_when_issue_is_already_in_target_status():
+    session = Mock()
+    session.request.return_value = response(payload={"fields": {"status": {"name": "Expired"}}})
+    client = JiraClient(credentials(), session=session, sleeper=Mock())
+
+    changed = client.update_request_status("JIRA-1", "Expired")
+
+    assert changed is False
+    session.request.assert_called_once()
 
 
 def test_approval_uses_answerable_approval_id():

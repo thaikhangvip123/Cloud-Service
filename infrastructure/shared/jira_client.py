@@ -76,7 +76,11 @@ class JiraClient:
 
     def update_request_status(
         self, request_id: str, status: str, comment: str | None = None
-    ) -> None:
+    ) -> bool:
+        issue = self._request("GET", f"/rest/api/3/issue/{request_id}?fields=status")
+        current_status = issue.get("fields", {}).get("status", {}).get("name", "")
+        if current_status.casefold() == status.casefold():
+            return False
         transition_id = self._transition_id(request_id, status)
         self._request(
             "POST",
@@ -85,6 +89,7 @@ class JiraClient:
         )
         if comment:
             self.add_comment(request_id, comment)
+        return True
 
     def approve_request(self, request_id: str) -> None:
         approval_id = self._pending_approval_id(request_id)

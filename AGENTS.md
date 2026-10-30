@@ -21,7 +21,9 @@ A **Just-in-Time (JIT) access** system for AWS production accounts. Fully server
 ```
 Jira (request + approval) → API Gateway → Lambda Executor → IAM Identity Center (add user to group)
                                                          → DynamoDB (session record with TTL)
-DynamoDB TTL delete → DynamoDB Stream → Lambda Expiry → IAM Identity Center (remove user from group)
+                                                         → EventBridge Scheduler (exact expiry)
+EventBridge Scheduler → Lambda Expiry → IAM Identity Center (remove user from group)
+SIT fallback: delayed DynamoDB TTL delete → DynamoDB Stream → Lambda Expiry
 Email approval (optional): Jira → Lambda Email Approval → SES → approver clicks link → Jira Approval API
 ```
 
@@ -68,6 +70,7 @@ shared/                                                          # Lambda Layer 
 ├── identity_center.py     # Identity Center API wrapper
 ├── email_notification.py  # SES notifications
 ├── logging_config.py      # structured JSON logging + correlation_id
+├── scheduler.py           # deterministic one-time EventBridge schedules
 ├── config.py              # feature flags
 └── utils.py
 docs/                      # LAMBDA_ARCHITECTURE, GROUP_BASED_ACCESS_MECHANISM,
@@ -191,7 +194,7 @@ Example: 2 accounts × 3 types × 3 tiers → 9 permission sets, 18 groups, 18 a
 - Terraform state: bucket `sb-{env}-terraform-state-{region}`, lock table `sb-{env}-terraform-lock-{region}`, key `{project_name}/{environment}/terraform.tfstate`
 
 ### 5.5 Data model (do not change attribute names without a migration plan)
-- **AccessSessions** (PK `sessionId`): `requestId, requester, awsAccountId, account_name, access_type, duration_hours, duration_tier, group_id, group_name, membership_id, permission_set_arn, granted_at, expires_at, ttl, status (Active|Expired|Revoked)`. On-demand billing, stream `NEW_AND_OLD_IMAGES`, TTL on `ttl`, encrypted.
+- **AccessSessions** (PK `sessionId`): `requestId, requester, awsAccountId, account_name, access_type, duration_hours, duration_tier, group_id, group_name, membership_id, permission_set_arn, granted_at, expires_at, ttl, schedule_name, status (Active|Expired|Revoked)`. On-demand billing, stream `NEW_AND_OLD_IMAGES`, TTL on `ttl`, encrypted. Scheduler revokes at `expires_at`; `ttl` is 24 hours later so cleanup cannot race Scheduler retries. The stream consumer is a SIT-only fallback.
 - **ApprovalTokens** (PK `token_id`): `request_id, action (approve|decline), created_at, expires_at (+24h), used, used_at, ttl`.
 - **Access group mapping secret**: `{"access_groups": {"<key>": {group_id, group_name, account_name, account_id, access_type, duration_tier, permission_set_arn}}}`. Produced by `populate_access_group_mapping.py` from Terraform outputs. **Never hand-edit it.**
 - `membership_id` is **required** on a group-based session: it is what revocation uses. A session without it is legacy (direct assignment) and takes the legacy path in Lambda Expiry.
@@ -200,6 +203,7 @@ Example: 2 accounts × 3 types × 3 tiers → 9 permission sets, 18 groups, 18 a
 - Webhook auth: `x-api-key` validated against Secrets Manager with **constant-time comparison**; payload integrity via HMAC-SHA256; JSON schema validation. API Gateway also enforces API key + usage plan (burst 20, rate 10 req/s default, 10,000/day).
 - Email approval token format: `{token_id}.{expiry_timestamp}.{hmac_signature}` (HMAC-SHA256, key from Secrets Manager). Rules: verify signature → check expiry → check `used` → **mark used before** calling Jira → single-use, 24h TTL.
 - Lambda Expiry retry on `DeleteGroupMembership`: attempts at 0s, +1s, +2s, +4s (exponential backoff). After the final failure: **raise** so the CloudWatch alarm fires.
+- Executor must create the one-time EventBridge schedule before persisting a new active session. If schedule creation or persistence fails, roll back the membership; never leave unscheduled access.
 - Lambda Expiry must verify the stream record is a **TTL deletion** (`eventName == REMOVE` and `userIdentity.principalId == dynamodb.amazonaws.com`), not a manual delete.
 - Emergency revoke: list memberships for the user (`ListGroupMembershipsForMember`), delete all, record the event in DynamoDB and CloudWatch.
 
@@ -367,7 +371,7 @@ Commit and PR conventions: small, focused commits; imperative subject line ≤ 7
 
 These come from the project document. Treat them as **things to check**, and raise them with a human instead of silently "resolving" them.
 
-1. **The "< 60 s" SLA is not end-to-end.** It describes credential invalidation *after* `DeleteGroupMembership`. Expiry depends on DynamoDB TTL deletion, which is **not real-time** (AWS documents it as a background process; deletion can lag after the TTL timestamp). The permission set `Session Duration` (PT1H…PT12H) is the hard backstop. Do not state or document "revoked within 60 s of expiry" without this nuance, and flag any design that relies on TTL for time-critical revocation.
+1. **The "< 60 s" credential SLA is not guaranteed.** EventBridge Scheduler now triggers membership removal at `expires_at`, while DynamoDB TTL is delayed cleanup only. However, deleting group membership prevents new role assumptions and does not invalidate credentials already issued before deletion. The permission set `Session Duration` (PT1H…PT12H) is the hard backstop. Do not state "credentials invalid within 60 s of expiry" until an approved per-user active-session/SCP design is implemented and measured.
 2. **Sub-0.5h requests.** §5.2 starts at 0.5h, while the limits section says any value > 0 is supported (0.1h = 6 minutes). Confirm intended behavior (map to `1h`? reject?) before changing `map_duration_to_tier`.
 3. **Terraform state naming** uses the `sb-` prefix while resources use `pa-`. Confirm this is intentional before renaming anything.
 4. **Module count**: the doc says 9 modules but lists 10 (`identity-center`, `permission-sets`, `access-groups`, `group-assignments`, `api-gateway`, `dynamodb`, `dynamodb-approval-tokens`, `lambda-functions`, `secrets-manager`, `ses`). Trust the filesystem.
@@ -377,8 +381,9 @@ These come from the project document. Treat them as **things to check**, and rai
 8. **Legacy sessions**: Lambda Expiry still has a legacy (direct assignment) branch. Do not remove it without confirming no legacy sessions remain.
 9. **SIT `dynamodb:ListStreams` IAM exception**: AWS does not support resource-level permissions
    or service-specific condition keys for `dynamodb:ListStreams`. A dedicated
-   `Resource = "*"` statement is temporarily approved only for the SIT Lambda Expiry role. UAT
-   and PROD must use the approved precise scheduler design and must not inherit this exception.
+   `Resource = "*"` statement is approved only for the SIT Lambda Expiry fallback. EventBridge
+   Scheduler is the primary expiry trigger in every environment; UAT and PROD must not inherit
+   the stream exception.
 
 ---
 

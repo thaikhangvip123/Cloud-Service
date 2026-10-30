@@ -181,6 +181,28 @@ jobs:
             echo "::error::Terraform apply failed; raw output is withheld because it may contain sensitive values."
             exit "${status}"
           fi
+      - name: Encrypt failed apply log
+        if: failure()
+        working-directory: infrastructure/terraform
+        shell: bash
+        env:
+          TFPLAN_ENCRYPTION_KEY: ${{ secrets.TFPLAN_ENCRYPTION_KEY }}
+        run: |
+          if [[ ! -f tfapply.log ]]; then
+            echo "::error::Terraform apply log was not created."
+            exit 1
+          fi
+          openssl enc -aes-256-cbc -pbkdf2 -salt \
+            -in tfapply.log -out tfapply.log.enc \
+            -pass env:TFPLAN_ENCRYPTION_KEY
+      - name: Upload encrypted apply diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: terraform-apply-error-${{ inputs.environment }}-${{ github.run_id }}
+          path: infrastructure/terraform/tfapply.log.enc
+          if-no-files-found: error
+          retention-days: 1
       - name: Install mapping dependencies
         run: python -m pip install --disable-pip-version-check -r infrastructure/requirements.txt
       - name: Refresh access group mapping
@@ -190,4 +212,4 @@ jobs:
       - name: Remove decrypted plan
         if: always()
         working-directory: infrastructure/terraform
-        run: rm -f tfplan tfapply.log
+        run: rm -f tfplan tfapply.log tfapply.log.enc
