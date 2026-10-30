@@ -21,9 +21,7 @@ class IdentityCenterClient:
         self.identity_store_id = identity_store_id
         self.client = client or boto3.client("identitystore")
         self.instance_arn = instance_arn
-        self.ssoadmin = ssoadmin_client or (
-            boto3.client("sso-admin") if instance_arn else None
-        )
+        self.ssoadmin = ssoadmin_client or (boto3.client("sso-admin") if instance_arn else None)
         self.sleeper = sleeper
 
     def _pages(self, operation: str, result_key: str, **kwargs: Any) -> Iterator[dict[str, Any]]:

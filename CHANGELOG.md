@@ -23,10 +23,10 @@ recorded here.
   below the 6,144-character managed-policy limit. The largest policy was 5,581 characters.
 - Verified the Scheduler group and API Gateway `iam:PassRole` constraints with direct renderer
   assertions.
-- Python source and tests compiled successfully with Python 3.12.14.
-- Full Python quality gates could not be rerun locally because the existing `.venv` references a
-  removed Python 3.11 installation and PyPI downloads were reset by the network. PR CI must run the
-  pinned Python 3.12 toolchain.
+- Python 3.12.10 quality gates passed: Black, Flake8, Mypy, 98 Pytest tests with 78% aggregate
+  coverage, and Pylint with a score of 8.87/10.
+- Terraform formatting and validation passed locally. Lambda Linux packaging and the SIT plan
+  remain CI follow-ups because the local host has no active Linux build environment.
 
 ## 2026-10-29
 

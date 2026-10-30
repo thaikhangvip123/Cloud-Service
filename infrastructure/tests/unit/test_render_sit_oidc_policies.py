@@ -117,16 +117,12 @@ def test_apply_policy_manages_only_expected_scheduler_and_api_roles():
     api_pass_role = statement(policy, "PassApiGatewayCloudWatchRole")
 
     assert any(
-        item.endswith("role/pa-sit-expiry-scheduler-role-ap-southeast-1")
-        for item in managed_roles
+        item.endswith("role/pa-sit-expiry-scheduler-role-ap-southeast-1") for item in managed_roles
     )
     assert any(
-        item.endswith("role/pa-sit-api-cloudwatch-role-ap-southeast-1")
-        for item in managed_roles
+        item.endswith("role/pa-sit-api-cloudwatch-role-ap-southeast-1") for item in managed_roles
     )
-    assert api_pass_role["Resource"].endswith(
-        "role/pa-sit-api-cloudwatch-role-ap-southeast-1"
-    )
+    assert api_pass_role["Resource"].endswith("role/pa-sit-api-cloudwatch-role-ap-southeast-1")
     assert api_pass_role["Condition"]["StringEquals"]["iam:PassedToService"] == (
         "apigateway.amazonaws.com"
     )
@@ -143,14 +139,13 @@ def test_scheduler_and_api_logging_permissions_are_environment_scoped():
     assert statement(apply_policy, "ManageSitExpiryScheduleGroup")["Resource"] == (
         schedule_group_arn
     )
-    assert statement(read_policy, "ReadSitExpiryScheduleGroup")["Resource"] == (
-        schedule_group_arn
-    )
+    assert statement(read_policy, "ReadSitExpiryScheduleGroup")["Resource"] == (schedule_group_arn)
     log_resources = statement(apply_policy, "ManageSitApplicationLogs")["Resource"]
     assert any("log-group:/aws/apigateway/pa-sit-*" in item for item in log_resources)
-    assert "arn:aws:apigateway:ap-southeast-1::/account" in statement(
-        apply_policy, "ManageSitApiGateway"
-    )["Resource"]
+    assert (
+        "arn:aws:apigateway:ap-southeast-1::/account"
+        in statement(apply_policy, "ManageSitApiGateway")["Resource"]
+    )
 
 
 def test_identity_center_writes_are_scoped_to_sit_inputs():
