@@ -34,6 +34,28 @@ class IdentityCenterError(PortalError):
     code = "IDENTITY_CENTER_ERROR"
 
 
+class AmbiguousIdentityError(IdentityCenterError):
+    code = "AMBIGUOUS_IDENTITY"
+    status_code = 409
+
+
+class MembershipConflictError(IdentityCenterError):
+    code = "MEMBERSHIP_CONFLICT"
+    status_code = 409
+
+
+class EmergencyRevocationError(IdentityCenterError):
+    code = "EMERGENCY_REVOCATION_FAILED"
+
+
+class LegacySessionError(IdentityCenterError):
+    code = "LEGACY_SESSION_REVOKE_UNAVAILABLE"
+
+
+class SchedulingError(PortalError):
+    code = "EXPIRY_SCHEDULING_FAILED"
+
+
 class DynamoDBError(PortalError):
     code = "DYNAMODB_ERROR"
 

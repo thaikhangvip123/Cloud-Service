@@ -43,6 +43,35 @@ variable "quota_limit" {
   type = number
 }
 
+variable "log_retention_days" {
+  type = number
+}
+
+data "aws_partition" "current" {}
+
+resource "aws_iam_role" "cloudwatch" {
+  name = "${var.resource_prefix}-api-cloudwatch-role-${var.region}"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "apigateway.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "cloudwatch" {
+  role       = aws_iam_role.cloudwatch.name
+  policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs"
+}
+
+resource "aws_api_gateway_account" "this" {
+  cloudwatch_role_arn = aws_iam_role.cloudwatch.arn
+
+  depends_on = [aws_iam_role_policy_attachment.cloudwatch]
+}
+
 resource "aws_api_gateway_rest_api" "this" {
   name = "${var.resource_prefix}-api-${var.region}"
 
@@ -155,6 +184,39 @@ resource "aws_api_gateway_stage" "this" {
   deployment_id = aws_api_gateway_deployment.this.id
   rest_api_id   = aws_api_gateway_rest_api.this.id
   stage_name    = replace(var.resource_prefix, "pa-", "")
+
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.access.arn
+    format = jsonencode({
+      requestId      = "$context.requestId"
+      requestTime    = "$context.requestTime"
+      httpMethod     = "$context.httpMethod"
+      resourcePath   = "$context.resourcePath"
+      status         = "$context.status"
+      responseLength = "$context.responseLength"
+      errorMessage   = "$context.error.message"
+      sourceIp       = "$context.identity.sourceIp"
+    })
+  }
+
+  depends_on = [aws_api_gateway_account.this]
+}
+
+resource "aws_cloudwatch_log_group" "access" {
+  name              = "/aws/apigateway/${var.resource_prefix}-api-${var.region}"
+  retention_in_days = var.log_retention_days
+}
+
+resource "aws_api_gateway_method_settings" "all" {
+  rest_api_id = aws_api_gateway_rest_api.this.id
+  stage_name  = aws_api_gateway_stage.this.stage_name
+  method_path = "*/*"
+
+  settings {
+    logging_level      = "ERROR"
+    data_trace_enabled = false
+    metrics_enabled    = true
+  }
 }
 
 resource "aws_api_gateway_api_key" "this" {

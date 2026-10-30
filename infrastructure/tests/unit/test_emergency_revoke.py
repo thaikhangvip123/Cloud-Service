@@ -1,5 +1,8 @@
 from unittest.mock import Mock
 
+import pytest
+
+from shared.errors import EmergencyRevocationError, IdentityCenterError
 from shared.jit_access import JITAccessManager
 
 
@@ -35,3 +38,17 @@ def test_emergency_revoke_removes_only_portal_groups():
     identity.remove_membership.assert_called_once_with("membership-1")
     repository.archive_access_session.assert_called_once()
     jira.update_request_status.assert_called_once()
+
+
+def test_emergency_revoke_raises_when_any_membership_cannot_be_removed():
+    identity = Mock()
+    identity.get_user_by_email.return_value = {"UserId": "user-1"}
+    identity.memberships_for_user.return_value = [
+        {"MembershipId": "membership-1", "GroupId": "group-1"}
+    ]
+    identity.describe_group.return_value = {"DisplayName": "pa-sit-app-Admin-1h"}
+    identity.remove_membership.side_effect = IdentityCenterError("access denied")
+    manager = JITAccessManager(identity, repository=Mock(), group_prefix="pa-")
+
+    with pytest.raises(EmergencyRevocationError):
+        manager.immediate_revoke_with_user_tag("user@example.com")

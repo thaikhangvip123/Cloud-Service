@@ -15,11 +15,14 @@ Jira request and approval
         v
 API Gateway -> Executor Lambda -> IAM Identity Center group membership
                          |
-                         v
-                  DynamoDB session with TTL
+                         +-> DynamoDB active session / audit record
                          |
-                         v
-DynamoDB Stream -> Expiry Lambda -> Remove group membership
+                         +-> EventBridge Scheduler (expires_at)
+                                      |
+                                      v
+                               Expiry Lambda -> Remove group membership
+
+SIT fallback: delayed DynamoDB TTL delete -> Stream -> Expiry Lambda
 
 Optional email approval:
 Jira -> Email Approval Lambda -> SES -> Signed approval link -> Jira API
@@ -33,7 +36,8 @@ Secrets Manager, SES, CloudWatch, CloudTrail, and IAM Identity Center.
 - Zero standing production privileges.
 - Explicit Jira approval before access is granted.
 - Time-limited access with a maximum duration of 12 hours.
-- API key, HMAC validation, JSON schema validation, IAM, and audit logging.
+- API key, HMAC validation on both POST webhooks, JSON schema validation, IAM,
+  and audit logging.
 - Separate Lambda IAM roles and environment-specific Terraform state.
 - Runtime code changes group membership only; it does not create account
   assignments dynamically.
@@ -110,9 +114,10 @@ Local `*.tfvars` files are intentionally untracked because they may contain AWS
 account identifiers. CI renders the selected environment's tier and audit
 settings together with protected GitHub Environment secrets at runtime.
 
-Do not deploy UAT or production until the DynamoDB TTL revocation timing and
-active-session credential revocation controls have an approved production
-design.
+EventBridge Scheduler is the primary expiry trigger. DynamoDB TTL is delayed
+for cleanup and remains a SIT-only stream fallback. Production still requires
+an approved active-session credential revocation design because removing group
+membership does not invalidate credentials that were already issued.
 
 ## Deployment Safety
 

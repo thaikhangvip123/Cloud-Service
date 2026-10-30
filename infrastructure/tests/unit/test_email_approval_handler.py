@@ -1,10 +1,12 @@
+import hashlib
+import hmac
+import json
 import time
 from unittest.mock import Mock
 
 import pytest
 
-from lambda_functions.email_approval.handler import _process_action
-from lambda_functions.email_approval.handler import _create_tokens
+from lambda_functions.email_approval.handler import _create_tokens, _process_action, lambda_handler
 from shared.approval_tokens import generate_token
 from shared.errors import DurationExceededError, TokenAlreadyUsedError
 
@@ -58,3 +60,69 @@ def test_approval_request_rejects_duration_over_twelve_hours():
             Mock(),
             Mock(),
         )
+
+
+def approval_request_event(include_signature=True):
+    body = json.dumps(
+        {
+            "requestId": "JIRA-1",
+            "requester": "user@example.com",
+            "approverEmail": "approver@example.com",
+            "awsAccount": "application",
+            "accessType": "ReadOnly",
+            "durationHours": 1,
+        },
+        separators=(",", ":"),
+    )
+    timestamp = str(int(time.time()))
+    headers = {"x-api-key": "key"}
+    if include_signature:
+        signature = hmac.new(
+            b"hmac-secret",
+            f"{timestamp}.{body}".encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        headers.update(
+            {
+                "x-request-timestamp": timestamp,
+                "x-jira-signature": f"sha256={signature}",
+            }
+        )
+    return {
+        "httpMethod": "POST",
+        "resource": "/email-approval/request",
+        "headers": headers,
+        "body": body,
+    }
+
+
+def test_email_approval_webhook_requires_valid_hmac():
+    repository = Mock()
+    dependencies = (
+        {"api_key": "key", "hmac_secret": "hmac-secret"},
+        "token-secret",
+        repository,
+        Mock(),
+        Mock(),
+    )
+
+    result = lambda_handler(approval_request_event(False), None, dependencies=dependencies)
+
+    assert result["statusCode"] == 401
+    repository.put_approval_token.assert_not_called()
+
+
+def test_email_approval_webhook_accepts_signed_payload():
+    repository = Mock()
+    dependencies = (
+        {"api_key": "key", "hmac_secret": "hmac-secret"},
+        "token-secret",
+        repository,
+        Mock(),
+        Mock(),
+    )
+
+    result = lambda_handler(approval_request_event(), None, dependencies=dependencies)
+
+    assert result["statusCode"] == 200
+    assert repository.put_approval_token.call_count == 2

@@ -23,7 +23,12 @@ from shared.utils import (
     response,
     utc_now,
 )
-from shared.webhook_auth import EMAIL_APPROVAL_SCHEMA, validate_api_key, validate_payload
+from shared.webhook_auth import (
+    EMAIL_APPROVAL_SCHEMA,
+    validate_api_key,
+    validate_payload,
+    verify_hmac,
+)
 
 LOGGER = get_logger(__name__)
 VALID_ACTIONS = {"approve", "decline"}
@@ -123,8 +128,15 @@ def lambda_handler(event: dict[str, Any], _context: Any, dependencies=None):
             route=path,
         )
         if method == "POST" and path.endswith("/email-approval/request"):
-            validate_api_key(normalized_headers(event), auth["api_key"])
-            payload, _ = parse_json_body(event)
+            headers = normalized_headers(event)
+            validate_api_key(headers, auth["api_key"])
+            payload, raw_body = parse_json_body(event)
+            verify_hmac(
+                raw_body,
+                headers,
+                auth["hmac_secret"],
+                required=settings.require_hmac,
+            )
             return response(200, _create_tokens(payload, secret, repository, notifier))
         if method == "GET" and path.endswith("/email-approval/action"):
             return _process_action(

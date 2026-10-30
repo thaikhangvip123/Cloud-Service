@@ -8,11 +8,18 @@ from typing import Any
 from shared.config import settings
 from shared.dynamodb_session import DynamoRepository
 from shared.email_notification import EmailNotifier
-from shared.errors import DynamoDBError, JiraUpdateError, PortalError, ValidationError
+from shared.errors import (
+    DynamoDBError,
+    JiraUpdateError,
+    MembershipConflictError,
+    PortalError,
+    ValidationError,
+)
 from shared.identity_center import IdentityCenterClient
 from shared.jira_client import JiraClient
 from shared.jit_access import JITAccessManager
 from shared.logging_config import get_logger, log
+from shared.scheduler import ExpiryScheduler
 from shared.secrets import get_secret
 from shared.utils import normalized_headers, parse_json_body, response
 from shared.webhook_auth import validate_api_key, validate_payload, verify_hmac, PROVISION_SCHEMA
@@ -58,7 +65,10 @@ def _dependencies():
     if _CACHED_DEPENDENCIES is not None:
         return _CACHED_DEPENDENCIES
     auth = get_secret(settings.webhook_auth_secret)
-    identity = IdentityCenterClient(settings.identity_store_id)
+    identity = IdentityCenterClient(
+        settings.identity_store_id,
+        instance_arn=settings.identity_center_instance_arn,
+    )
     repository = DynamoRepository(settings.access_sessions_table, settings.approval_tokens_table)
     jira = JiraClient(get_secret(settings.jira_credentials_secret))
     manager = JITAccessManager(
@@ -66,6 +76,11 @@ def _dependencies():
         repository,
         get_secret,
         jira,
+        ExpiryScheduler(
+            settings.expiry_schedule_group,
+            settings.expiry_scheduler_role_arn,
+            settings.expiry_lambda_arn,
+        ),
         LOGGER,
         settings.access_group_prefix,
     )
@@ -108,14 +123,47 @@ def process(event: dict[str, Any], dependencies=None) -> dict[str, Any]:
     membership = manager.add_user_to_group(
         request["requester"], group["group_id"], group["group_name"]
     )
-    try:
+    replayed = membership.get("already_exists", False)
+    if replayed:
+        session_id = f"membership-{membership['membership_id']}"
+        try:
+            session = repository.get_access_session(session_id)
+        except Exception as exc:
+            raise DynamoDBError("Unable to load existing access session") from exc
+        if not session:
+            raise MembershipConflictError(
+                "Existing group membership has no matching access session"
+            )
+        if session.get("requestId") != request["requestId"] or session.get("status") != "Active":
+            raise MembershipConflictError(
+                "Existing group membership belongs to a different or inactive access session"
+            )
+    else:
         session = manager.build_session(request, group, membership["membership_id"])
-        repository.put_access_session(session)
-    except Exception as exc:
-        manager.remove_user_from_group(membership["membership_id"], group["group_name"])
-        raise DynamoDBError("Unable to persist access session") from exc
+        try:
+            schedule_name = manager.schedule_expiry(session)
+        except Exception:
+            manager.remove_user_from_group(membership["membership_id"], group["group_name"])
+            raise
+        session["schedule_name"] = schedule_name
+        try:
+            repository.put_access_session(session)
+        except Exception as exc:
+            try:
+                manager.cancel_expiry_schedule(schedule_name)
+            except Exception:
+                log(
+                    LOGGER,
+                    logging.ERROR,
+                    "Failed to remove expiry schedule during grant rollback",
+                    correlation_id=correlation_id,
+                    request_id=request["requestId"],
+                    operation="rollback_expiry_schedule",
+                )
+            manager.remove_user_from_group(membership["membership_id"], group["group_name"])
+            raise DynamoDBError("Unable to persist access session") from exc
     try:
-        jira.update_request_status(
+        jira_changed = jira.update_request_status(
             request["requestId"],
             "Approved",
             f"Access provisioned in group {group['group_name']} until {session['expires_at']}.",
@@ -128,12 +176,13 @@ def process(event: dict[str, Any], dependencies=None) -> dict[str, Any]:
         "requester": request["requester"],
         "account": request["awsAccount"],
         "accessType": request["accessType"],
-        "durationTier": tier,
+        "durationTier": session.get("duration_tier", tier),
         "expiresAt": session["expires_at"],
         "identityCenterPortalUrl": settings.portal_url,
     }
     try:
-        notifier.send_access_granted_email(request["requester"], result)
+        if not replayed or jira_changed:
+            notifier.send_access_granted_email(request["requester"], result)
     except Exception:
         log(
             LOGGER,
@@ -186,6 +235,8 @@ def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
             operation="provision_access",
             error_code=exc.code,
         )
+        if event.get("operation") == "emergency_revoke":
+            raise
         return response(
             exc.status_code, {"status": "error", "errorCode": exc.code, "message": str(exc)}
         )

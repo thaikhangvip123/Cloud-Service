@@ -10,7 +10,7 @@ from boto3.dynamodb.types import TypeDeserializer
 from shared.config import settings
 from shared.dynamodb_session import DynamoRepository
 from shared.email_notification import EmailNotifier
-from shared.errors import IdentityCenterError
+from shared.errors import IdentityCenterError, LegacySessionError
 from shared.identity_center import IdentityCenterClient
 from shared.jira_client import JiraClient
 from shared.logging_config import get_logger, log
@@ -30,7 +30,7 @@ def _is_ttl_remove(record: dict[str, Any]) -> bool:
     if record.get("eventName") != "REMOVE":
         return False
     principal = record.get("userIdentity", {}).get("principalId")
-    return principal in (None, "dynamodb.amazonaws.com")
+    return principal == "dynamodb.amazonaws.com"
 
 
 def _dependencies():
@@ -38,7 +38,10 @@ def _dependencies():
     if _CACHED_DEPENDENCIES is not None:
         return _CACHED_DEPENDENCIES
     _CACHED_DEPENDENCIES = (
-        IdentityCenterClient(settings.identity_store_id),
+        IdentityCenterClient(
+            settings.identity_store_id,
+            instance_arn=settings.identity_center_instance_arn,
+        ),
         DynamoRepository(settings.access_sessions_table, settings.approval_tokens_table),
         JiraClient(get_secret(settings.jira_credentials_secret)),
         EmailNotifier(settings.ses_sender_email),
@@ -56,28 +59,55 @@ def revoke(
     sleeper=time.sleep,
 ) -> None:
     membership_id = session.get("membership_id")
-    if membership_id:
-        last_error = None
-        for attempt, delay in enumerate((0, 1, 2, 4), start=1):
-            if delay:
-                sleeper(delay)
-            try:
-                identity.remove_membership(membership_id)
-                last_error = None
-                break
-            except IdentityCenterError as exc:
-                last_error = exc
-                log(
-                    LOGGER,
-                    logging.WARNING,
-                    "Identity Center revocation attempt failed",
-                    correlation_id=session.get("correlation_id"),
-                    request_id=session.get("requestId"),
-                    operation="expire_access",
-                    attempt=attempt,
-                )
-        if last_error:
-            raise last_error
+    if not membership_id:
+        required = ("requester", "awsAccountId", "permission_set_arn")
+        missing = [field for field in required if not session.get(field)]
+        if missing:
+            raise LegacySessionError(
+                f"Legacy direct-assignment session is missing required fields: {', '.join(missing)}"
+            )
+        identity.remove_legacy_assignment(
+            session["requester"], session["awsAccountId"], session["permission_set_arn"]
+        )
+        repository.archive_access_session(session, "Expired", isoformat_z(utc_now()))
+        jira.update_request_status(
+            session["requestId"],
+            "Expired",
+            "Legacy direct-assignment production access expired.",
+        )
+        try:
+            notifier.send_access_expired_email(session["requester"], session["requestId"])
+        except Exception:
+            log(
+                LOGGER,
+                logging.WARNING,
+                "Legacy expiry email failed after access revocation",
+                correlation_id=session.get("correlation_id"),
+                request_id=session["requestId"],
+                operation="send_access_expired_email",
+            )
+        return
+    last_error = None
+    for attempt, delay in enumerate((0, 1, 2, 4), start=1):
+        if delay:
+            sleeper(delay)
+        try:
+            identity.remove_membership(membership_id)
+            last_error = None
+            break
+        except IdentityCenterError as exc:
+            last_error = exc
+            log(
+                LOGGER,
+                logging.WARNING,
+                "Identity Center revocation attempt failed",
+                correlation_id=session.get("correlation_id"),
+                request_id=session.get("requestId"),
+                operation="expire_access",
+                attempt=attempt,
+            )
+    if last_error:
+        raise last_error
     repository.archive_access_session(session, "Expired", isoformat_z(utc_now()))
     jira.update_request_status(
         session["requestId"],
@@ -99,6 +129,39 @@ def revoke(
 
 def lambda_handler(event: dict[str, Any], _context: Any, dependencies=None) -> dict[str, Any]:
     identity, repository, jira, notifier, sleeper = dependencies or _dependencies()
+    if event.get("source") == "jit.scheduler":
+        session_id = event.get("sessionId")
+        if not isinstance(session_id, str) or not session_id:
+            raise IdentityCenterError("Scheduled expiry event is missing sessionId")
+        session = repository.get_access_session(session_id)
+        if not session:
+            raise IdentityCenterError("Scheduled expiry session was not found")
+        if session.get("status") != "Active":
+            return {"status": "success", "processed": 0}
+        correlation_id = session.get("correlation_id") or str(uuid.uuid4())
+        log(
+            LOGGER,
+            logging.INFO,
+            "Revoking scheduled JIT access",
+            correlation_id=correlation_id,
+            request_id=session.get("requestId"),
+            operation="expire_access",
+        )
+        try:
+            revoke(session, identity, repository, jira, notifier, sleeper)
+        except Exception:
+            LOGGER.exception(
+                "Scheduled expiry processing failed",
+                extra={
+                    "context": {
+                        "correlation_id": correlation_id,
+                        "request_id": session.get("requestId"),
+                        "operation": "expire_access",
+                    }
+                },
+            )
+            raise
+        return {"status": "success", "processed": 1}
     processed = 0
     for record in event.get("Records", []):
         if not _is_ttl_remove(record):

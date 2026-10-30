@@ -8,12 +8,16 @@ from shared.jit_access import JITAccessManager, map_duration_to_tier
 @pytest.mark.parametrize(
     ("hours", "tier"),
     [
+        (0.5, "1h"),
         (0.1, "1h"),
         (1, "1h"),
         (1.1, "2h"),
-        (3, "4h"),
-        (7.5, "8h"),
-        (10, "12h"),
+        (2, "2h"),
+        (2.1, "4h"),
+        (4, "4h"),
+        (4.1, "8h"),
+        (8, "8h"),
+        (8.1, "12h"),
         (12, "12h"),
     ],
 )
@@ -55,5 +59,6 @@ def test_session_expiry_uses_mapped_tier_not_requested_hours():
     granted = datetime.fromisoformat(session["granted_at"].replace("Z", "+00:00"))
     expires = datetime.fromisoformat(session["expires_at"].replace("Z", "+00:00"))
     assert (expires - granted).total_seconds() == 4 * 3600
+    assert session["ttl"] - int(expires.timestamp()) == 24 * 3600
     assert session["duration_hours"] == 3
     assert session["correlation_id"] == "correlation-1"

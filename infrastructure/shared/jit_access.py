@@ -5,9 +5,11 @@ import logging
 from typing import Any
 
 from shared.account_mapping import find_access_group
-from shared.errors import DurationExceededError, ValidationError
+from shared.errors import DurationExceededError, EmergencyRevocationError, ValidationError
 from shared.logging_config import log
 from shared.utils import isoformat_z, utc_now
+
+SESSION_CLEANUP_DELAY = timedelta(hours=24)
 
 
 def map_duration_to_tier(hours: float) -> str:
@@ -30,6 +32,7 @@ class JITAccessManager:
         repository=None,
         secret_loader=None,
         jira_client=None,
+        expiry_scheduler=None,
         logger: logging.Logger | None = None,
         group_prefix: str = "pa-",
     ):
@@ -37,6 +40,7 @@ class JITAccessManager:
         self.repository = repository
         self.secret_loader = secret_loader
         self.jira_client = jira_client
+        self.expiry_scheduler = expiry_scheduler
         self.logger = logger
         self.group_prefix = group_prefix
 
@@ -48,6 +52,7 @@ class JITAccessManager:
         result = self.identity_center.add_user_to_group(user["UserId"], group_id)
         return {
             "membership_id": result["MembershipId"],
+            "already_exists": bool(result.get("AlreadyExists", False)),
             "user_id": user["UserId"],
             "group_id": group_id,
             "group_name": group_name,
@@ -99,10 +104,17 @@ class JITAccessManager:
             "permission_set_arn": group["permission_set_arn"],
             "granted_at": isoformat_z(granted),
             "expires_at": isoformat_z(expires),
-            "ttl": int(expires.timestamp()),
+            # Keep the active record available while Scheduler retries the exact-time revoke.
+            "ttl": int((expires + SESSION_CLEANUP_DELAY).timestamp()),
             "status": "Active",
             "correlation_id": request.get("correlationId", ""),
         }
+
+    def schedule_expiry(self, session: dict[str, Any]) -> str:
+        return self.expiry_scheduler.create(session)
+
+    def cancel_expiry_schedule(self, schedule_name: str) -> None:
+        self.expiry_scheduler.delete(schedule_name)
 
     def immediate_revoke_with_user_tag(self, user_email: str) -> dict[str, Any]:
         user = self.get_user_info_by_email(user_email)
@@ -155,9 +167,14 @@ class JITAccessManager:
                             operation="emergency_revoke",
                             request_id=session.get("requestId"),
                         )
-        return {
+        result = {
             "user": user_email,
             "revokedMemberships": revoked,
             "failures": failures,
             "status": "success" if failures == 0 else "partial",
         }
+        if failures:
+            raise EmergencyRevocationError(
+                f"Emergency revocation completed with {failures} failed operation(s)"
+            )
+        return result

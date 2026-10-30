@@ -7,6 +7,7 @@ from unittest.mock import Mock
 import pytest
 
 from lambda_functions.executor.handler import (
+    lambda_handler,
     parse_request,
     process,
     process_emergency_revoke,
@@ -15,6 +16,7 @@ from shared.errors import (
     DurationExceededError,
     DynamoDBError,
     GroupMappingNotFoundError,
+    MembershipConflictError,
     UserNotFoundError,
 )
 
@@ -54,6 +56,7 @@ def dependencies():
         "permission_set_arn": "arn:permission-set",
     }
     manager.add_user_to_group.return_value = {"membership_id": "membership"}
+    manager.schedule_expiry.return_value = "schedule-1"
     manager.build_session.return_value = {
         "sessionId": "membership-membership",
         "expires_at": "2026-06-12T12:00:00Z",
@@ -77,6 +80,64 @@ def test_session_failure_rolls_back_membership():
     deps[1].remove_user_from_group.assert_called_once_with(
         "membership", "pa-sit-application-PowerUser-4h"
     )
+    deps[1].cancel_expiry_schedule.assert_called_once_with("schedule-1")
+
+
+def test_schedule_failure_rolls_back_membership_before_session_write():
+    deps = dependencies()
+    deps[1].schedule_expiry.side_effect = RuntimeError("scheduler unavailable")
+
+    with pytest.raises(RuntimeError):
+        process(event(), deps)
+
+    deps[1].remove_user_from_group.assert_called_once_with(
+        "membership", "pa-sit-application-PowerUser-4h"
+    )
+    deps[2].put_access_session.assert_not_called()
+
+
+def test_webhook_retry_reuses_active_session_without_extending_expiry():
+    deps = dependencies()
+    deps[1].add_user_to_group.return_value = {
+        "membership_id": "membership",
+        "already_exists": True,
+    }
+    deps[2].get_access_session.return_value = {
+        "sessionId": "membership-membership",
+        "requestId": "JIRA-1234",
+        "status": "Active",
+        "duration_tier": "4h",
+        "expires_at": "2026-06-12T12:00:00Z",
+    }
+    deps[3].update_request_status.return_value = False
+
+    result = process(event(), deps)
+
+    assert result["expiresAt"] == "2026-06-12T12:00:00Z"
+    deps[1].build_session.assert_not_called()
+    deps[2].put_access_session.assert_not_called()
+    deps[4].send_access_granted_email.assert_not_called()
+
+
+def test_existing_membership_without_session_fails_closed():
+    deps = dependencies()
+    deps[1].add_user_to_group.return_value = {
+        "membership_id": "membership",
+        "already_exists": True,
+    }
+    deps[2].get_access_session.return_value = None
+
+    with pytest.raises(MembershipConflictError):
+        process(event(), deps)
+
+
+def test_notification_failure_does_not_fail_grant():
+    deps = dependencies()
+    deps[4].send_access_granted_email.side_effect = RuntimeError("SES unavailable")
+
+    result = process(event(), deps)
+
+    assert result["status"] == "success"
 
 
 def test_direct_emergency_revoke_returns_summary():
@@ -98,6 +159,18 @@ def test_direct_emergency_revoke_returns_summary():
 
     assert result["revokedMemberships"] == 3
     assert result["correlationId"] == "correlation-1"
+
+
+def test_emergency_revoke_failure_escapes_lambda_for_cloudwatch_alarm(monkeypatch):
+    from shared.errors import EmergencyRevocationError
+
+    def fail(_event):
+        raise EmergencyRevocationError("revocation failed")
+
+    monkeypatch.setattr("lambda_functions.executor.handler.process_emergency_revoke", fail)
+
+    with pytest.raises(EmergencyRevocationError):
+        lambda_handler({"operation": "emergency_revoke"}, None)
 
 
 def test_duration_over_twelve_hours_is_rejected():

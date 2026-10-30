@@ -2,6 +2,10 @@ variable "instance_arn" {
   type = string
 }
 
+variable "resource_prefix" {
+  type = string
+}
+
 variable "permission_sets" {
   type = map(object({
     access_type = string
@@ -21,7 +25,7 @@ resource "aws_ssoadmin_permission_set" "this" {
   for_each = var.permission_sets
 
   instance_arn     = var.instance_arn
-  name             = "${each.value.access_type}-${each.value.tier}"
+  name             = "${var.resource_prefix}-${each.value.access_type}-${each.value.tier}"
   description      = "JIT ${each.value.access_type} access for ${each.value.tier}"
   session_duration = var.session_durations[each.value.tier]
 }
