@@ -1,0 +1,82 @@
+modules:
+  automation:actionProvider:
+    - key: pa-sit-jit-action-provider
+      actions:
+        - provision-approved-jit-access
+  action:
+    - key: provision-approved-jit-access
+      name: Provision approved AWS JIT access
+      function: provision-access
+      description: Sends an approved Jira request to the SIT AWS JIT access API.
+      actionVerb: TRIGGER
+      config:
+        resource: automation-config
+        render: native
+      inputs:
+        requestId:
+          title: Request ID
+          type: string
+          description: Jira request key, for example a smart value such as {{issue.key}}.
+          required: true
+        requester:
+          title: Requester email
+          type: string
+          description: Email address that matches the requester in IAM Identity Center.
+          required: true
+        awsAccount:
+          title: AWS account name
+          type: string
+          description: Logical target account name from the JIT access group mapping.
+          required: true
+        accessType:
+          title: Access type
+          type: string
+          description: One of ReadOnly, PowerUser, or Admin.
+          required: true
+        durationHours:
+          title: Duration hours
+          type: string
+          description: Requested access duration in hours, resolved by Jira Automation at runtime.
+          required: true
+      outputs:
+        status:
+          description: Provisioning result returned by the AWS JIT API.
+          type: string
+          nullable: false
+        requestId:
+          description: Jira request key processed by the AWS JIT API.
+          type: string
+          nullable: false
+        durationTier:
+          description: Duration tier selected by the AWS JIT service.
+          type: string
+          nullable: false
+        expiresAt:
+          description: UTC timestamp at which the access membership expires.
+          type: string
+          nullable: false
+        identityCenterPortalUrl:
+          description: IAM Identity Center portal URL returned to the requester.
+          type: string
+          nullable: false
+      outputContext:
+        entityName: jitAccess
+        outputType: OBJECT
+        outputDomain: jira
+  function:
+    - key: provision-access
+      handler: index.provisionAccess
+resources:
+  - key: automation-config
+    path: src/frontend/AutomationConfig.jsx
+permissions:
+  external:
+    fetch:
+      backend:
+        - address: https://wnm8d4oudg.execute-api.ap-southeast-1.amazonaws.com
+app:
+  runtime:
+    name: nodejs24.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/2d4863d6-13ba-4499-b33c-593a197242f0

@@ -1,0 +1,18 @@
+{
+  "name": "pa-sit-jit-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "scripts": {
+    "test": "node --test",
+    "lint": "forge lint"
+  },
+  "dependencies": {
+    "@forge/bridge": "7.3.0",
+    "@forge/react": "12.5.0",
+    "react": "18.3.1"
+  }
+}
