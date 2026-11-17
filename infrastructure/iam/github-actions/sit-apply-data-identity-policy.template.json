@@ -71,6 +71,80 @@
       ]
     },
     {
+      "Sid": "ReadIdentityCenterSamlProvider",
+      "Effect": "Allow",
+      "Action": "iam:GetSAMLProvider",
+      "Resource": "__SSO_SAML_PROVIDER_ARN__"
+    },
+    {
+      "Sid": "ManageIdentityCenterProvisionedRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:GetRole",
+        "iam:UpdateRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:DeleteRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:ListRoleTags",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies"
+      ],
+      "Resource": [
+        "__TARGET_SSO_ROLE_ARNS__"
+      ]
+    },
+    {
+      "Sid": "AttachReadOnlyIdentityCenterManagedPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": [
+        "__TARGET_READONLY_SSO_ROLE_ARNS__"
+      ],
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": "arn:aws:iam::aws:policy/ReadOnlyAccess"
+        }
+      }
+    },
+    {
+      "Sid": "AttachPowerUserIdentityCenterManagedPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": [
+        "__TARGET_POWERUSER_SSO_ROLE_ARNS__"
+      ],
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": "arn:aws:iam::aws:policy/PowerUserAccess"
+        }
+      }
+    },
+    {
+      "Sid": "AttachAdminIdentityCenterManagedPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": [
+        "__TARGET_ADMIN_SSO_ROLE_ARNS__"
+      ],
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": "arn:aws:iam::aws:policy/AdministratorAccess"
+        }
+      }
+    },
+    {
       "Sid": "CreateSitIdentityStoreGroups",
       "Effect": "Allow",
       "Action": "identitystore:CreateGroup",

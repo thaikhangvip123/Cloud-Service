@@ -17,7 +17,24 @@ The renderer prompts without echoing for:
 - the deployment AWS account ID;
 - the IAM Identity Center instance ID (`ssoins-...`);
 - the Identity Store ID;
+- the exact IAM Identity Center SAML provider ARN (`AWSSSO_..._DO_NOT_DELETE`);
 - the allowed target AWS account IDs, defaulting to the deployment account.
+
+The renderer rejects a SAML provider from a different account. Use the account that
+contains `pa-sit-github-plan` and `pa-sit-github-apply` as the deployment account; list
+separate application accounts only when prompted for target account IDs.
+
+Before rendering, retrieve the values from the same authenticated deployment account:
+
+```bash
+aws sts get-caller-identity --query Account --output text
+aws iam list-saml-providers \
+  --query 'SAMLProviderList[?contains(Arn, `AWSSSO_`) && contains(Arn, `DO_NOT_DELETE`)].Arn' \
+  --output text
+```
+
+Paste the complete SAML provider ARN when prompted. The renderer inserts it as-is and
+will reject both a duplicated `saml-provider/arn:...` prefix and an account mismatch.
 
 Rendered policies are written to
 `infrastructure/iam/github-actions/generated/`, which is ignored by Git. If
@@ -38,6 +55,16 @@ Attach these to `pa-sit-github-apply`:
 - `sit-apply-iam-lambda-policy.json`
 - `sit-apply-data-identity-policy.json`
 - `sit-apply-edge-observability-policy.json`
+
+When refreshing AWS policies, replace each customer-managed policy document with the
+corresponding rendered JSON and set the new policy version as default. Do not merge
+individual statements into an older document; doing so can retain stale account IDs or
+omit newly required permissions.
+
+The data/identity policy permits IAM Identity Center to provision only roles under the
+regional `aws-reserved/sso.amazonaws.com` path whose names start with
+`AWSReservedSSO_pa-sit-`. Managed-policy attachment is further restricted to the three
+approved JIT policies: `ReadOnlyAccess`, `PowerUserAccess`, and `AdministratorAccess`.
 
 Do not attach `AdministratorAccess`, `PowerUserAccess`, or `IAMFullAccess`.
 Discovery actions that do not support resource-level authorization retain

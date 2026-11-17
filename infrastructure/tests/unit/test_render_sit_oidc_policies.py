@@ -9,7 +9,12 @@ from scripts.render_sit_oidc_policies import (
     IDENTITY_STORE_ID_PLACEHOLDER,
     INSTANCE_ID_PLACEHOLDER,
     POLICY_SIZE_LIMIT,
+    SAML_PROVIDER_ARN_PLACEHOLDER,
     TARGET_ACCOUNT_ARNS_PLACEHOLDER,
+    TARGET_ADMIN_SSO_ROLE_ARNS_PLACEHOLDER,
+    TARGET_POWERUSER_SSO_ROLE_ARNS_PLACEHOLDER,
+    TARGET_READONLY_SSO_ROLE_ARNS_PLACEHOLDER,
+    TARGET_SSO_ROLE_ARNS_PLACEHOLDER,
     compact_policy_size,
     render_policy,
     render_templates,
@@ -22,6 +27,7 @@ RENDER_ARGS = (
     "123456789012",
     "ssoins-1234567890abcdef",
     "d-1234567890",
+    "arn:aws:iam::123456789012:saml-provider/AWSSSO_1234567890abcdef_DO_NOT_DELETE",
     ["123456789012"],
 )
 
@@ -64,7 +70,12 @@ def test_render_templates_produces_valid_size_limited_json(tmp_path):
         ACCOUNT_ID_PLACEHOLDER,
         INSTANCE_ID_PLACEHOLDER,
         IDENTITY_STORE_ID_PLACEHOLDER,
+        SAML_PROVIDER_ARN_PLACEHOLDER,
         TARGET_ACCOUNT_ARNS_PLACEHOLDER,
+        TARGET_SSO_ROLE_ARNS_PLACEHOLDER,
+        TARGET_READONLY_SSO_ROLE_ARNS_PLACEHOLDER,
+        TARGET_POWERUSER_SSO_ROLE_ARNS_PLACEHOLDER,
+        TARGET_ADMIN_SSO_ROLE_ARNS_PLACEHOLDER,
     )
     for output in outputs:
         content = output.read_text(encoding="utf-8")
@@ -113,16 +124,21 @@ def test_apply_iam_policy_never_targets_deployment_roles():
 
 def test_apply_policy_manages_only_expected_scheduler_and_api_roles():
     policy = rendered("sit-apply-iam-lambda-policy.template.json")
+    manage_roles = statement(policy, "ManageLambdaExecutionRoles")
     managed_roles = statement(policy, "ManageLambdaExecutionRoles")["Resource"]
     api_pass_role = statement(policy, "PassApiGatewayCloudWatchRole")
 
-    assert any(
-        item.endswith("role/pa-sit-expiry-scheduler-role-ap-southeast-1") for item in managed_roles
+    assert "iam:CreateRole" in manage_roles["Action"]
+    assert set(managed_roles) == {
+        "arn:aws:iam::123456789012:role/pa-sit-executor-role-ap-southeast-1",
+        "arn:aws:iam::123456789012:role/pa-sit-expiry-role-ap-southeast-1",
+        "arn:aws:iam::123456789012:role/pa-sit-email-approval-role-ap-southeast-1",
+        "arn:aws:iam::123456789012:role/pa-sit-expiry-scheduler-role-ap-southeast-1",
+        "arn:aws:iam::123456789012:role/pa-sit-api-cloudwatch-role-ap-southeast-1",
+    }
+    assert api_pass_role["Resource"] == (
+        "arn:aws:iam::123456789012:role/pa-sit-api-cloudwatch-role-ap-southeast-1"
     )
-    assert any(
-        item.endswith("role/pa-sit-api-cloudwatch-role-ap-southeast-1") for item in managed_roles
-    )
-    assert api_pass_role["Resource"].endswith("role/pa-sit-api-cloudwatch-role-ap-southeast-1")
     assert api_pass_role["Condition"]["StringEquals"]["iam:PassedToService"] == (
         "apigateway.amazonaws.com"
     )
@@ -157,6 +173,49 @@ def test_identity_center_writes_are_scoped_to_sit_inputs():
     assert "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/*" in resources
     assert "arn:aws:sso:::account/123456789012" in resources
     assert "*" not in resources
+
+
+def test_apply_policy_reads_exact_identity_center_saml_provider():
+    policy = rendered("sit-apply-data-identity-policy.template.json")
+    saml_provider = statement(policy, "ReadIdentityCenterSamlProvider")
+
+    assert saml_provider["Action"] == "iam:GetSAMLProvider"
+    assert saml_provider["Resource"] == RENDER_ARGS[3]
+    assert "saml-provider/arn:" not in saml_provider["Resource"]
+
+
+def test_apply_policy_limits_identity_center_provisioned_roles():
+    policy = rendered("sit-apply-data-identity-policy.template.json")
+    manage = statement(policy, "ManageIdentityCenterProvisionedRoles")
+    readonly = statement(policy, "AttachReadOnlyIdentityCenterManagedPolicy")
+    power_user = statement(policy, "AttachPowerUserIdentityCenterManagedPolicy")
+    admin = statement(policy, "AttachAdminIdentityCenterManagedPolicy")
+    expected_role = (
+        "arn:aws:iam::123456789012:role/aws-reserved/sso.amazonaws.com/"
+        "ap-southeast-1/AWSReservedSSO_pa-sit-*"
+    )
+
+    assert manage["Resource"] == [expected_role]
+    assert {
+        "iam:CreateRole",
+        "iam:UpdateRole",
+        "iam:UpdateAssumeRolePolicy",
+    } <= set(manage["Action"])
+    assert "iam:PutRolePolicy" not in manage["Action"]
+    assert readonly["Resource"] == [expected_role.replace("pa-sit-*", "pa-sit-ReadOnly-*")]
+    assert readonly["Condition"]["ArnEquals"]["iam:PolicyARN"] == (
+        "arn:aws:iam::aws:policy/ReadOnlyAccess"
+    )
+    assert power_user["Resource"] == [
+        expected_role.replace("pa-sit-*", "pa-sit-PowerUser-*")
+    ]
+    assert power_user["Condition"]["ArnEquals"]["iam:PolicyARN"] == (
+        "arn:aws:iam::aws:policy/PowerUserAccess"
+    )
+    assert admin["Resource"] == [expected_role.replace("pa-sit-*", "pa-sit-Admin-*")]
+    assert admin["Condition"]["ArnEquals"]["iam:PolicyARN"] == (
+        "arn:aws:iam::aws:policy/AdministratorAccess"
+    )
 
 
 def test_event_source_mapping_creation_is_limited_to_expiry_function():
@@ -210,6 +269,7 @@ def test_render_policy_rejects_invalid_identity_center_inputs():
             "invalid-instance",
             RENDER_ARGS[2],
             RENDER_ARGS[3],
+            RENDER_ARGS[4],
         )
     with pytest.raises(ValueError, match="Identity Store ID"):
         render_policy(
@@ -218,4 +278,20 @@ def test_render_policy_rejects_invalid_identity_center_inputs():
             RENDER_ARGS[1],
             "bad",
             RENDER_ARGS[3],
+            RENDER_ARGS[4],
+        )
+
+
+def test_render_policy_rejects_saml_provider_from_another_account():
+    template = TEMPLATE_DIR / "sit-apply-data-identity-policy.template.json"
+
+    with pytest.raises(ValueError, match="deployment AWS account"):
+        render_policy(
+            template,
+            RENDER_ARGS[0],
+            RENDER_ARGS[1],
+            RENDER_ARGS[2],
+            "arn:aws:iam::210987654321:"
+            "saml-provider/AWSSSO_1234567890abcdef_DO_NOT_DELETE",
+            RENDER_ARGS[4],
         )

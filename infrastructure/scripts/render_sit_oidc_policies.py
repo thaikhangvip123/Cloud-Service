@@ -13,10 +13,18 @@ from typing import Any
 ACCOUNT_ID_PATTERN = re.compile(r"^[0-9]{12}$")
 INSTANCE_ID_PATTERN = re.compile(r"^ssoins-[A-Za-z0-9-]+$")
 IDENTITY_STORE_ID_PATTERN = re.compile(r"^[A-Za-z0-9-]{10,64}$")
+SAML_PROVIDER_ARN_PATTERN = re.compile(
+    r"^arn:aws:iam::([0-9]{12}):saml-provider/AWSSSO_[A-Za-z0-9]+_DO_NOT_DELETE$"
+)
 ACCOUNT_ID_PLACEHOLDER = "__AWS_ACCOUNT_ID__"
 INSTANCE_ID_PLACEHOLDER = "__SSO_INSTANCE_ID__"
 IDENTITY_STORE_ID_PLACEHOLDER = "__IDENTITY_STORE_ID__"
+SAML_PROVIDER_ARN_PLACEHOLDER = "__SSO_SAML_PROVIDER_ARN__"
 TARGET_ACCOUNT_ARNS_PLACEHOLDER = "__TARGET_ACCOUNT_ARNS__"
+TARGET_SSO_ROLE_ARNS_PLACEHOLDER = "__TARGET_SSO_ROLE_ARNS__"
+TARGET_READONLY_SSO_ROLE_ARNS_PLACEHOLDER = "__TARGET_READONLY_SSO_ROLE_ARNS__"
+TARGET_POWERUSER_SSO_ROLE_ARNS_PLACEHOLDER = "__TARGET_POWERUSER_SSO_ROLE_ARNS__"
+TARGET_ADMIN_SSO_ROLE_ARNS_PLACEHOLDER = "__TARGET_ADMIN_SSO_ROLE_ARNS__"
 POLICY_SIZE_LIMIT = 6144
 
 
@@ -29,6 +37,7 @@ def validate_inputs(
     account_id: str,
     instance_id: str,
     identity_store_id: str,
+    saml_provider_arn: str,
     target_account_ids: list[str],
 ) -> None:
     if not ACCOUNT_ID_PATTERN.fullmatch(account_id):
@@ -37,27 +46,57 @@ def validate_inputs(
         raise ValueError("Identity Center instance ID must start with ssoins-")
     if not IDENTITY_STORE_ID_PATTERN.fullmatch(identity_store_id):
         raise ValueError("Identity Store ID has an invalid format")
+    saml_match = SAML_PROVIDER_ARN_PATTERN.fullmatch(saml_provider_arn)
+    if not saml_match:
+        raise ValueError("Identity Center SAML provider ARN has an invalid format")
+    if saml_match.group(1) != account_id:
+        raise ValueError(
+            "Identity Center SAML provider must belong to the deployment AWS account"
+        )
     if not target_account_ids:
         raise ValueError("At least one target AWS account ID is required")
     if any(not ACCOUNT_ID_PATTERN.fullmatch(item) for item in target_account_ids):
         raise ValueError("Target AWS account IDs must contain exactly 12 ASCII digits")
 
 
-def expand_target_accounts(value: Any, target_account_arns: list[str]) -> Any:
+def expand_target_accounts(
+    value: Any,
+    target_account_arns: list[str],
+    target_sso_role_arns: dict[str, list[str]],
+) -> Any:
     if isinstance(value, dict):
         return {
-            key: expand_target_accounts(item, target_account_arns) for key, item in value.items()
+            key: expand_target_accounts(item, target_account_arns, target_sso_role_arns)
+            for key, item in value.items()
         }
     if isinstance(value, list):
         expanded = []
         for item in value:
             if item == TARGET_ACCOUNT_ARNS_PLACEHOLDER:
                 expanded.extend(target_account_arns)
+            elif item == TARGET_SSO_ROLE_ARNS_PLACEHOLDER:
+                expanded.extend(target_sso_role_arns["all"])
+            elif item == TARGET_READONLY_SSO_ROLE_ARNS_PLACEHOLDER:
+                expanded.extend(target_sso_role_arns["ReadOnly"])
+            elif item == TARGET_POWERUSER_SSO_ROLE_ARNS_PLACEHOLDER:
+                expanded.extend(target_sso_role_arns["PowerUser"])
+            elif item == TARGET_ADMIN_SSO_ROLE_ARNS_PLACEHOLDER:
+                expanded.extend(target_sso_role_arns["Admin"])
             else:
-                expanded.append(expand_target_accounts(item, target_account_arns))
+                expanded.append(
+                    expand_target_accounts(item, target_account_arns, target_sso_role_arns)
+                )
         return expanded
     if value == TARGET_ACCOUNT_ARNS_PLACEHOLDER:
         return target_account_arns
+    if value == TARGET_SSO_ROLE_ARNS_PLACEHOLDER:
+        return target_sso_role_arns["all"]
+    if value == TARGET_READONLY_SSO_ROLE_ARNS_PLACEHOLDER:
+        return target_sso_role_arns["ReadOnly"]
+    if value == TARGET_POWERUSER_SSO_ROLE_ARNS_PLACEHOLDER:
+        return target_sso_role_arns["PowerUser"]
+    if value == TARGET_ADMIN_SSO_ROLE_ARNS_PLACEHOLDER:
+        return target_sso_role_arns["Admin"]
     return value
 
 
@@ -66,27 +105,58 @@ def render_policy(
     account_id: str,
     instance_id: str,
     identity_store_id: str,
+    saml_provider_arn: str,
     target_account_ids: list[str],
 ) -> dict[str, Any]:
-    validate_inputs(account_id, instance_id, identity_store_id, target_account_ids)
+    validate_inputs(
+        account_id,
+        instance_id,
+        identity_store_id,
+        saml_provider_arn,
+        target_account_ids,
+    )
     replacements = {
         ACCOUNT_ID_PLACEHOLDER: account_id,
         INSTANCE_ID_PLACEHOLDER: instance_id,
         IDENTITY_STORE_ID_PLACEHOLDER: identity_store_id,
+        SAML_PROVIDER_ARN_PLACEHOLDER: saml_provider_arn,
     }
     rendered = template.read_text(encoding="utf-8")
     for placeholder, replacement in replacements.items():
         rendered = rendered.replace(placeholder, replacement)
 
+    unique_target_accounts = list(dict.fromkeys(target_account_ids))
     policy = expand_target_accounts(
         json.loads(rendered),
-        [f"arn:aws:sso:::account/{item}" for item in dict.fromkeys(target_account_ids)],
+        [f"arn:aws:sso:::account/{item}" for item in unique_target_accounts],
+        {
+            "all": [
+                "arn:aws:iam::"
+                f"{item}:role/aws-reserved/sso.amazonaws.com/ap-southeast-1/"
+                "AWSReservedSSO_pa-sit-*"
+                for item in unique_target_accounts
+            ],
+            **{
+                access_type: [
+                    "arn:aws:iam::"
+                    f"{item}:role/aws-reserved/sso.amazonaws.com/ap-southeast-1/"
+                    f"AWSReservedSSO_pa-sit-{access_type}-*"
+                    for item in unique_target_accounts
+                ]
+                for access_type in ("ReadOnly", "PowerUser", "Admin")
+            },
+        },
     )
     unresolved = (
         ACCOUNT_ID_PLACEHOLDER,
         INSTANCE_ID_PLACEHOLDER,
         IDENTITY_STORE_ID_PLACEHOLDER,
+        SAML_PROVIDER_ARN_PLACEHOLDER,
         TARGET_ACCOUNT_ARNS_PLACEHOLDER,
+        TARGET_SSO_ROLE_ARNS_PLACEHOLDER,
+        TARGET_READONLY_SSO_ROLE_ARNS_PLACEHOLDER,
+        TARGET_POWERUSER_SSO_ROLE_ARNS_PLACEHOLDER,
+        TARGET_ADMIN_SSO_ROLE_ARNS_PLACEHOLDER,
     )
     serialized = json.dumps(policy)
     if any(placeholder in serialized for placeholder in unresolved):
@@ -104,6 +174,7 @@ def render_templates(
     account_id: str,
     instance_id: str,
     identity_store_id: str,
+    saml_provider_arn: str,
     target_account_ids: list[str],
 ) -> list[Path]:
     templates = sorted(template_dir.glob("*.template.json"))
@@ -119,6 +190,7 @@ def render_templates(
             account_id,
             instance_id,
             identity_store_id,
+            saml_provider_arn,
             target_account_ids,
         )
         output.write_text(json.dumps(policy, indent=2) + "\n", encoding="utf-8")
@@ -144,6 +216,10 @@ def main() -> None:
         "IAM Identity Center instance ID, ssoins-... (input hidden): "
     ).strip()
     identity_store_id = getpass.getpass("Identity Store ID (input hidden): ").strip()
+    saml_provider_arn = getpass.getpass(
+        "Identity Center SAML provider ARN, arn:aws:iam::...:saml-provider/AWSSSO_... "
+        "(input hidden): "
+    ).strip()
     target_input = getpass.getpass(
         "Target AWS account IDs, comma-separated; blank uses deployment account: "
     ).strip()
@@ -157,6 +233,7 @@ def main() -> None:
         account_id,
         instance_id,
         identity_store_id,
+        saml_provider_arn,
         target_account_ids,
     )
     for output in outputs:
